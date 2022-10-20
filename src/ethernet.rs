@@ -13,7 +13,7 @@ impl EthHdr {
 }
 
 #[repr(u16)]
-#[derive(Debug, Copy, Clone)]
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
 pub enum EthProtocol {
     Loop = 0x0060,
     Ipv4 = 0x0800,
