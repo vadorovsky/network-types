@@ -1,6 +1,6 @@
 use core::mem;
 
-use crate::bitfield::BitfieldUnit;
+use crate::{bitfield::BitfieldUnit, macros::impl_enum_try_from};
 
 pub enum IpHdr {
     V4(Ipv4Hdr),
@@ -24,6 +24,10 @@ pub struct Ipv4Hdr {
 }
 
 impl Ipv4Hdr {
+    pub fn protocol(&self) -> Result<Ipv4Protocol, ()> {
+        self.protocol.try_into()
+    }
+
     #[inline]
     pub fn ihl(&self) -> u8 {
         unsafe { mem::transmute(self._bitfield_1.get(0usize, 4u8) as u8) }
@@ -64,6 +68,40 @@ impl Ipv4Hdr {
         __bindgen_bitfield_unit
     }
 }
+
+impl_enum_try_from!(
+    /// IPv4 protocol
+    #[repr(u8)]
+    #[derive(PartialEq, Eq, Debug, Copy, Clone)]
+    pub enum Ipv4Protocol {
+        Icmp = 1,
+        Igmp = 2,
+        IpIp = 4,
+        Tcp = 6,
+        Egp = 8,
+        Pup = 12,
+        Udp = 17,
+        Idp = 22,
+        Tp = 29,
+        Dccp = 33,
+        Ipv6InIpv4Tunnel = 41,
+        Rsvp = 46,
+        Gre = 47,
+        Esp = 50,
+        Ah = 51,
+        Mtp = 92,
+        Beet = 94,
+        Encap = 98,
+        Pim = 103,
+        Comp = 108,
+        Sctp = 132,
+        UdpLite = 136,
+        Mpls = 137,
+        EthernetInIpv4 = 143,
+        Raw = 255,
+    },
+    u8
+);
 
 #[repr(C)]
 #[derive(Copy, Clone)]
