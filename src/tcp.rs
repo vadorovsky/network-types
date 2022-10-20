@@ -138,47 +138,47 @@ impl TcpHdr {
         ece: u16,
         cwr: u16,
     ) -> BitfieldUnit<[u8; 2usize]> {
-        let mut __bindgen_bitfield_unit: BitfieldUnit<[u8; 2usize]> = Default::default();
-        __bindgen_bitfield_unit.set(0usize, 4u8, {
+        let mut bitfield_unit: BitfieldUnit<[u8; 2usize]> = Default::default();
+        bitfield_unit.set(0usize, 4u8, {
             let res1: u16 = unsafe { ::core::mem::transmute(res1) };
             res1 as u64
         });
-        __bindgen_bitfield_unit.set(4usize, 4u8, {
+        bitfield_unit.set(4usize, 4u8, {
             let doff: u16 = unsafe { ::core::mem::transmute(doff) };
             doff as u64
         });
-        __bindgen_bitfield_unit.set(8usize, 1u8, {
+        bitfield_unit.set(8usize, 1u8, {
             let fin: u16 = unsafe { ::core::mem::transmute(fin) };
             fin as u64
         });
-        __bindgen_bitfield_unit.set(9usize, 1u8, {
+        bitfield_unit.set(9usize, 1u8, {
             let syn: u16 = unsafe { ::core::mem::transmute(syn) };
             syn as u64
         });
-        __bindgen_bitfield_unit.set(10usize, 1u8, {
+        bitfield_unit.set(10usize, 1u8, {
             let rst: u16 = unsafe { ::core::mem::transmute(rst) };
             rst as u64
         });
-        __bindgen_bitfield_unit.set(11usize, 1u8, {
+        bitfield_unit.set(11usize, 1u8, {
             let psh: u16 = unsafe { ::core::mem::transmute(psh) };
             psh as u64
         });
-        __bindgen_bitfield_unit.set(12usize, 1u8, {
+        bitfield_unit.set(12usize, 1u8, {
             let ack: u16 = unsafe { ::core::mem::transmute(ack) };
             ack as u64
         });
-        __bindgen_bitfield_unit.set(13usize, 1u8, {
+        bitfield_unit.set(13usize, 1u8, {
             let urg: u16 = unsafe { ::core::mem::transmute(urg) };
             urg as u64
         });
-        __bindgen_bitfield_unit.set(14usize, 1u8, {
+        bitfield_unit.set(14usize, 1u8, {
             let ece: u16 = unsafe { ::core::mem::transmute(ece) };
             ece as u64
         });
-        __bindgen_bitfield_unit.set(15usize, 1u8, {
+        bitfield_unit.set(15usize, 1u8, {
             let cwr: u16 = unsafe { ::core::mem::transmute(cwr) };
             cwr as u64
         });
-        __bindgen_bitfield_unit
+        bitfield_unit
     }
 }

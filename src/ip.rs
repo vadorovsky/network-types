@@ -56,16 +56,16 @@ impl Ipv4Hdr {
 
     #[inline]
     pub fn new_bitfield_1(ihl: u8, version: u8) -> BitfieldUnit<[u8; 1usize]> {
-        let mut __bindgen_bitfield_unit: BitfieldUnit<[u8; 1usize]> = Default::default();
-        __bindgen_bitfield_unit.set(0usize, 4u8, {
+        let mut bitfield_unit: BitfieldUnit<[u8; 1usize]> = Default::default();
+        bitfield_unit.set(0usize, 4u8, {
             let ihl: u8 = unsafe { mem::transmute(ihl) };
             ihl as u64
         });
-        __bindgen_bitfield_unit.set(4usize, 4u8, {
+        bitfield_unit.set(4usize, 4u8, {
             let version: u8 = unsafe { mem::transmute(version) };
             version as u64
         });
-        __bindgen_bitfield_unit
+        bitfield_unit
     }
 }
 
@@ -159,15 +159,15 @@ impl Ipv6Hdr {
 
     #[inline]
     pub fn new_bitfield_1(priority: u8, version: u8) -> BitfieldUnit<[u8; 1usize]> {
-        let mut __bindgen_bitfield_unit: BitfieldUnit<[u8; 1usize]> = Default::default();
-        __bindgen_bitfield_unit.set(0usize, 4u8, {
+        let mut bitfield_unit: BitfieldUnit<[u8; 1usize]> = Default::default();
+        bitfield_unit.set(0usize, 4u8, {
             let priority: u8 = unsafe { mem::transmute(priority) };
             priority as u64
         });
-        __bindgen_bitfield_unit.set(4usize, 4u8, {
+        bitfield_unit.set(4usize, 4u8, {
             let version: u8 = unsafe { mem::transmute(version) };
             version as u64
         });
-        __bindgen_bitfield_unit
+        bitfield_unit
     }
 }
