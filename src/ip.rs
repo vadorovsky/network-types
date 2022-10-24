@@ -28,6 +28,18 @@ impl Ipv4Hdr {
         self.protocol.try_into()
     }
 
+    /// Returns the source IP address as an unsigned integer of the target's
+    /// endianness.
+    pub fn saddr(&self) -> u32 {
+        u32::from_be(self.saddr)
+    }
+
+    /// Returns the destination IP address as an unsigned integer of the
+    /// target's endianness.
+    pub fn daddr(&self) -> u32 {
+        u32::from_be(self.daddr)
+    }
+
     #[inline]
     pub fn ihl(&self) -> u8 {
         unsafe { mem::transmute(self._bitfield_1.get(0usize, 4u8) as u8) }
@@ -131,6 +143,16 @@ pub struct Ipv6Hdr {
 }
 
 impl Ipv6Hdr {
+    /// Returns the source IP address as array of bytes.
+    pub fn saddr(&self) -> [u8; 16usize] {
+        unsafe { self.saddr.in6_u.u6_addr8 }
+    }
+
+    /// Returns the destination IP address as array of bytes.
+    pub fn daddr(&self) -> [u8; 16usize] {
+        unsafe { self.daddr.in6_u.u6_addr8 }
+    }
+
     #[inline]
     pub fn priority(&self) -> u8 {
         unsafe { mem::transmute(self._bitfield_1.get(0usize, 4u8) as u8) }
