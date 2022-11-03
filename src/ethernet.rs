@@ -1,4 +1,8 @@
+use core::mem;
+
 use crate::macros::impl_enum_try_from_be;
+
+pub const ETH_HDR_LEN: usize = mem::size_of::<EthHdr>();
 
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]

@@ -2,6 +2,15 @@ use core::mem;
 
 use crate::{bitfield::BitfieldUnit, macros::impl_enum_try_from};
 
+pub const IPV4_HDR_LEN: usize = mem::size_of::<Ipv4Hdr>();
+pub const IPV6_HDR_LEN: usize = mem::size_of::<Ipv6Hdr>();
+
+#[repr(usize)]
+pub enum IpHdrLen {
+    V4 = IPV4_HDR_LEN,
+    V6 = IPV6_HDR_LEN,
+}
+
 pub enum IpHdr {
     V4(Ipv4Hdr),
     V6(Ipv6Hdr),

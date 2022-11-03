@@ -1,4 +1,8 @@
+use core::mem;
+
 use crate::bitfield::BitfieldUnit;
+
+pub const TCP_HDR_LEN: usize = mem::size_of::<TcpHdr>();
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

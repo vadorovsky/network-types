@@ -1,3 +1,7 @@
+use core::mem;
+
+pub const ICMP_HDR_LEN: usize = mem::size_of::<IcmpHdr>();
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct IcmpHdr {
