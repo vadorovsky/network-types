@@ -39,13 +39,13 @@ impl Ipv4Hdr {
 
     /// Returns the source IP address as an unsigned integer of the target's
     /// endianness.
-    pub fn saddr(&self) -> u32 {
+    pub fn saddr_from_be(&self) -> u32 {
         u32::from_be(self.saddr)
     }
 
     /// Returns the destination IP address as an unsigned integer of the
     /// target's endianness.
-    pub fn daddr(&self) -> u32 {
+    pub fn daddr_from_be(&self) -> u32 {
         u32::from_be(self.daddr)
     }
 
