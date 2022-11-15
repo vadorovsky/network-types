@@ -1,6 +1,6 @@
 use core::mem;
 
-use crate::{bitfield::BitfieldUnit, macros::impl_enum_try_from};
+use crate::{bitfield::BitfieldUnit, l4::L4Protocol};
 
 pub const IPV4_HDR_LEN: usize = mem::size_of::<Ipv4Hdr>();
 pub const IPV6_HDR_LEN: usize = mem::size_of::<Ipv6Hdr>();
@@ -92,40 +92,6 @@ impl Ipv4Hdr {
         bitfield_unit
     }
 }
-
-impl_enum_try_from!(
-    /// Layer 4 (transport layer) protocol.
-    #[repr(u8)]
-    #[derive(PartialEq, Eq, Debug, Copy, Clone)]
-    pub enum L4Protocol {
-        Icmp = 1,
-        Igmp = 2,
-        IpIp = 4,
-        Tcp = 6,
-        Egp = 8,
-        Pup = 12,
-        Udp = 17,
-        Idp = 22,
-        Tp = 29,
-        Dccp = 33,
-        Ipv6InIpv4Tunnel = 41,
-        Rsvp = 46,
-        Gre = 47,
-        Esp = 50,
-        Ah = 51,
-        Mtp = 92,
-        Beet = 94,
-        Encap = 98,
-        Pim = 103,
-        Comp = 108,
-        Sctp = 132,
-        UdpLite = 136,
-        Mpls = 137,
-        EthernetInIpv4 = 143,
-        Raw = 255,
-    },
-    u8
-);
 
 #[repr(C)]
 #[derive(Copy, Clone)]

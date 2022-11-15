@@ -1,9 +1,7 @@
 #![no_std]
 
 pub mod bitfield;
-pub mod ethernet;
-pub mod icmp;
-pub mod ip;
+pub mod l2;
+pub mod l3;
+pub mod l4;
 pub mod macros;
-pub mod tcp;
-pub mod udp;

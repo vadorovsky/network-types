@@ -1,6 +1,6 @@
 use core::mem;
 
-use crate::macros::impl_enum_try_from_be;
+use crate::l3::L3Protocol;
 
 pub const ETH_HDR_LEN: usize = mem::size_of::<EthHdr>();
 
@@ -21,19 +21,3 @@ impl EthHdr {
         self.h_proto.try_into()
     }
 }
-
-impl_enum_try_from_be!(
-    /// Layer 3 (network layer) protocol.
-    #[repr(u16)]
-    #[derive(PartialEq, Eq, Debug, Copy, Clone)]
-    pub enum L3Protocol {
-        Loop = 0x0060,
-        Ipv4 = 0x0800,
-        Arp = 0x0806,
-        Ipv6 = 0x86DD,
-        FibreChannel = 0x8906,
-        Infiniband = 0x8915,
-        LoopbackIeee8023 = 0x9000,
-    },
-    u16
-);
