@@ -4,6 +4,7 @@ use crate::bitfield::BitfieldUnit;
 
 pub const TCP_HDR_LEN: usize = mem::size_of::<TcpHdr>();
 
+/// TCP header, which is present after the IP header.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct TcpHdr {

@@ -11,11 +11,13 @@ pub enum IpHdrLen {
     V6 = IPV6_HDR_LEN,
 }
 
+/// IP headers, which are present after the Ethernet header.
 pub enum IpHdr {
     V4(Ipv4Hdr),
     V6(Ipv6Hdr),
 }
 
+//// IPv4 header, which is present after the Ethernet header.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Ipv4Hdr {
@@ -33,7 +35,8 @@ pub struct Ipv4Hdr {
 }
 
 impl Ipv4Hdr {
-    pub fn protocol(&self) -> Result<Ipv4Protocol, ()> {
+    /// Returns layer 4 (transport layer) protocol.
+    pub fn protocol(&self) -> Result<L4Protocol, ()> {
         self.protocol.try_into()
     }
 
@@ -91,10 +94,10 @@ impl Ipv4Hdr {
 }
 
 impl_enum_try_from!(
-    /// IPv4 protocol
+    /// Layer 4 (transport layer) protocol.
     #[repr(u8)]
     #[derive(PartialEq, Eq, Debug, Copy, Clone)]
-    pub enum Ipv4Protocol {
+    pub enum L4Protocol {
         Icmp = 1,
         Igmp = 2,
         IpIp = 4,
