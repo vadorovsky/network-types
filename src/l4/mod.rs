@@ -6,6 +6,7 @@ pub mod udp;
 
 impl_enum_try_from!(
     /// Layer 4 (transport layer) protocol.
+    /// https://en.wikipedia.org/wiki/List_of_IP_protocol_numbers
     #[repr(u8)]
     #[derive(PartialEq, Eq, Debug, Copy, Clone)]
     pub enum L4Protocol {
@@ -24,11 +25,13 @@ impl_enum_try_from!(
         Gre = 47,
         Esp = 50,
         Ah = 51,
+        IPv6ICMP = 58,
         Mtp = 92,
         Beet = 94,
         Encap = 98,
         Pim = 103,
         Comp = 108,
+        Vrrp = 112,
         Sctp = 132,
         UdpLite = 136,
         Mpls = 137,
