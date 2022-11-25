@@ -8,3 +8,6 @@ authors = ["Michal Rostecki <vadorovsky@gmail.com>"]
 repository = "https://github.com/vadorovsky/network-types"
 readme = "README.md"
 edition = "2021"
+
+[dependencies]
+enum-try-from = "0.0.1"

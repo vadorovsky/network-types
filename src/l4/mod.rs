@@ -1,4 +1,4 @@
-use crate::macros::impl_enum_try_from;
+use enum_try_from::impl_enum_try_from;
 
 pub mod icmp;
 pub mod tcp;
@@ -38,5 +38,7 @@ impl_enum_try_from!(
         EthernetInIpv4 = 143,
         Raw = 255,
     },
-    u8
+    u8,
+    (),
+    ()
 );

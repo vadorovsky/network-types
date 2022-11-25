@@ -1,4 +1,4 @@
-use crate::macros::impl_enum_try_from_be;
+use enum_try_from::impl_enum_try_from_be;
 
 pub mod ip;
 
@@ -15,5 +15,7 @@ impl_enum_try_from_be!(
         Infiniband = 0x8915,
         LoopbackIeee8023 = 0x9000,
     },
-    u16
+    u16,
+    (),
+    ()
 );
