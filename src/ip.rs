@@ -1,15 +1,6 @@
 use core::mem;
 
-use crate::{bitfield::BitfieldUnit, l4::L4Protocol};
-
-pub const IPV4_HDR_LEN: usize = mem::size_of::<Ipv4Hdr>();
-pub const IPV6_HDR_LEN: usize = mem::size_of::<Ipv6Hdr>();
-
-#[repr(usize)]
-pub enum IpHdrLen {
-    V4 = IPV4_HDR_LEN,
-    V6 = IPV6_HDR_LEN,
-}
+use crate::bitfield::BitfieldUnit;
 
 /// IP headers, which are present after the Ethernet header.
 pub enum IpHdr {
@@ -28,29 +19,14 @@ pub struct Ipv4Hdr {
     pub id: u16,
     pub frag_off: u16,
     pub ttl: u8,
-    pub protocol: u8,
+    pub proto: IpProto,
     pub check: u16,
-    pub saddr: u32,
-    pub daddr: u32,
+    pub src_addr: u32,
+    pub dst_addr: u32,
 }
 
 impl Ipv4Hdr {
-    /// Returns layer 4 (transport layer) protocol.
-    pub fn protocol(&self) -> Result<L4Protocol, ()> {
-        self.protocol.try_into()
-    }
-
-    /// Returns the source IP address as an unsigned integer of the target's
-    /// endianness.
-    pub fn saddr_from_be(&self) -> u32 {
-        u32::from_be(self.saddr)
-    }
-
-    /// Returns the destination IP address as an unsigned integer of the
-    /// target's endianness.
-    pub fn daddr_from_be(&self) -> u32 {
-        u32::from_be(self.daddr)
-    }
+    pub const LEN: usize = mem::size_of::<Ipv4Hdr>();
 
     #[inline]
     pub fn ihl(&self) -> u8 {
@@ -112,24 +88,16 @@ pub union in6_u {
 pub struct Ipv6Hdr {
     pub _bitfield_align_1: [u8; 0],
     pub _bitfield_1: BitfieldUnit<[u8; 1usize]>,
-    pub flow_lbl: [u8; 3usize],
+    pub flow_label: [u8; 3usize],
     pub payload_len: u16,
-    pub nexthdr: u8,
+    pub next_hdr: IpProto,
     pub hop_limit: u8,
-    pub saddr: in6_addr,
-    pub daddr: in6_addr,
+    pub src_addr: in6_addr,
+    pub dst_addr: in6_addr,
 }
 
 impl Ipv6Hdr {
-    /// Returns the source IP address as array of bytes.
-    pub fn saddr(&self) -> [u8; 16usize] {
-        unsafe { self.saddr.in6_u.u6_addr8 }
-    }
-
-    /// Returns the destination IP address as array of bytes.
-    pub fn daddr(&self) -> [u8; 16usize] {
-        unsafe { self.daddr.in6_u.u6_addr8 }
-    }
+    pub const LEN: usize = mem::size_of::<Ipv6Hdr>();
 
     #[inline]
     pub fn priority(&self) -> u8 {
@@ -170,4 +138,38 @@ impl Ipv6Hdr {
         });
         bitfield_unit
     }
+}
+
+/// Protocol which is encapsulated in the IPv4 packet.
+/// <https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml>
+#[repr(u8)]
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
+pub enum IpProto {
+    Icmp = 1,
+    Igmp = 2,
+    IpIp = 4,
+    Tcp = 6,
+    Egp = 8,
+    Pup = 12,
+    Udp = 17,
+    Idp = 22,
+    Tp = 29,
+    Dccp = 33,
+    Ipv6InIpv4Tunnel = 41,
+    Rsvp = 46,
+    Gre = 47,
+    Esp = 50,
+    Ah = 51,
+    IPv6ICMP = 58,
+    Mtp = 92,
+    Beet = 94,
+    Encap = 98,
+    Pim = 103,
+    Comp = 108,
+    Vrrp = 112,
+    Sctp = 132,
+    UdpLite = 136,
+    Mpls = 137,
+    EthernetInIpv4 = 143,
+    Raw = 255,
 }
