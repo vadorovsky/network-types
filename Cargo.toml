@@ -10,4 +10,3 @@ readme = "README.md"
 edition = "2021"
 
 [dependencies]
-enum-try-from = "0.0.1"

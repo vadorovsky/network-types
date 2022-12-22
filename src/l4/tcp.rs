@@ -20,18 +20,6 @@ pub struct TcpHdr {
 }
 
 impl TcpHdr {
-    /// Returns the source port as an unsigned integer of the target's
-    /// endianness.
-    pub fn source_from_be(&self) -> u16 {
-        u16::from_be(self.source)
-    }
-
-    /// Returns the destination port as an unsigned integer of the target's
-    /// endianness.
-    pub fn dest_from_be(&self) -> u16 {
-        u16::from_be(self.dest)
-    }
-
     #[inline]
     pub fn res1(&self) -> u16 {
         unsafe { ::core::mem::transmute(self._bitfield_1.get(0usize, 4u8) as u16) }

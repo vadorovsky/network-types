@@ -1,1 +1,1 @@
-pub mod ethernet;
+pub mod eth;
