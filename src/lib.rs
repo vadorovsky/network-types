@@ -47,7 +47,7 @@
 //!
 //! fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
 //!     let ethhdr: *const EthHdr = unsafe { ptr_at(&ctx, 0)? };
-//!     match unsafe { *ethhdr }.protocol()? {
+//!     match unsafe { *ethhdr }.proto {
 //!         EthProto::Ipv4 => {}
 //!         _ => return Ok(xdp_action::XDP_PASS),
 //!     }
