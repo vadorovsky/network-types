@@ -22,7 +22,7 @@ use aya_log_ebpf::info;
 use core::mem;
 use network_types::{
     l2::ethernet::{EthHdr, EthProto, ETH_HDR_LEN},
-    l3::ip::{Ipv4Hdr, Ipv4Proto, IPV4_HDR_LEN},
+    l3::ip::{Ipv4Hdr, IpProto, IPV4_HDR_LEN},
     l4::{tcp::TcpHdr, udp::UdpHdr},
 };
 
@@ -58,12 +58,12 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
     let source_addr = u32::from_be(unsafe { *ipv4hdr }.source);
 
     let source_port = match unsafe { *ipv4hdr }.proto {
-        Ipv4Proto::Tcp => {
+        IpProto::Tcp => {
             let tcphdr: *const TcpHdr =
                 unsafe { ptr_at(&ctx, ETH_HDR_LEN + IPV4_HDR_LEN) }?;
             u16::from_be(unsafe { *tcphdr }.source)
         }
-        Ipv4Proto::Udp => {
+        IpProto::Udp => {
             let udphdr: *const UdpHdr =
                 unsafe { ptr_at(&ctx, ETH_HDR_LEN + IPV4_HDR_LEN) }?;
             u16::from_be(unsafe { *udphdr }.source)
