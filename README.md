@@ -75,4 +75,19 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
 }
 ```
 
+## Naming conventions
+
+When naming stucts and fields, we are trying to stick to the following
+principles:
+
+* Use `CamelCase`, even for names which normally would be all uppercase
+  (e.g. `Icmp` instead of `ICMP`). This is the convention used by the
+  [std::net](https://doc.rust-lang.org/std/net/index.html) module.
+* Where field names (specified by RFCs or other standards) contain spaces,
+  replace them with `_`. In general, use `snake_case` for field names.
+* Shorten the following verbose names:
+  * `source` -> `src`
+  * `destination` -> `dst`
+  * `address` -> `addr`
+
 License: MIT
