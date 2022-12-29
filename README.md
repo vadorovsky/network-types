@@ -1,35 +1,27 @@
 # network-types
-Rust structs representing network-related types (on Layer 2, 3 and 4) in Linux.
 
-The crate is [no_std](https://docs.rust-embedded.org/book/intro/no-std.html)
-and the structures are fully compatible with the ones provided by the Linux
-kernel, which makes it a great fit for [eBPF](https://ebpf.io/) programs written
+Rust structs representing network protocol headers (on Layer 2, 3 and 4).
+
+The crate is [no_std](https://docs.rust-embedded.org/book/intro/no-std.html),
+which makes it a great fit for [eBPF](https://ebpf.io/) programs written
 with [Aya](https://aya-rs.dev/).
 
-## Example with Aya
+## Examples
 
-This crate can be used for parsing packet headers in
-[TC classifier](https://aya-rs.dev/book/programs/classifiers/) and
-[XDP](https://aya-rs.dev/book/start/).
-
-A small example of an XDP program logging information about addresses and ports
-for incoming packets:
+An example of an [XDP program](https://aya-rs.dev/book/start/) logging
+information about addresses and ports for incoming packets:
 
 ```rust
-#![no_std]
-#![no_main]
+use core::mem;
 
 use aya_bpf::{bindings::xdp_action, macros::xdp, programs::XdpContext};
 use aya_log_ebpf::info;
 
-use core::mem;
 use network_types::{
-    l2::ethernet::{EthHdr, ETH_HDR_LEN},
-    l3::{
-        ip::{Ipv4Hdr, IPV4_HDR_LEN},
-        L3Protocol,
-    },
-    l4::{tcp::TcpHdr, udp::UdpHdr, L4Protocol},
+    eth::{EthHdr, EtherType},
+    ip::{Ipv4Hdr, IpProto},
+    tcp::TcpHdr,
+    udp::UdpHdr,
 };
 
 #[xdp]
@@ -55,35 +47,47 @@ unsafe fn ptr_at<T>(ctx: &XdpContext, offset: usize) -> Result<*const T, ()> {
 
 fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
     let ethhdr: *const EthHdr = unsafe { ptr_at(&ctx, 0)? };
-    match unsafe { *ethhdr }.protocol()? {
-        L3Protocol::Ipv4 => {}
+    match unsafe { *ethhdr }.ether_type {
+        EtherType::Ipv4 => {}
         _ => return Ok(xdp_action::XDP_PASS),
     }
 
-    let ipv4hdr: *const Ipv4Hdr = unsafe { ptr_at(&ctx, ETH_HDR_LEN)? };
-    let saddr = unsafe { *ipv4hdr }.saddr_from_be();
+    let ipv4hdr: *const Ipv4Hdr = unsafe { ptr_at(&ctx, EthHdr::LEN)? };
+    let source_addr = u32::from_be(unsafe { *ipv4hdr }.src_addr);
 
-    let sport = match unsafe { *ipv4hdr }.protocol()? {
-        L4Protocol::Tcp => {
+    let source_port = match unsafe { *ipv4hdr }.proto {
+        IpProto::Tcp => {
             let tcphdr: *const TcpHdr =
-                unsafe { ptr_at(&ctx, ETH_HDR_LEN + IPV4_HDR_LEN) }?;
+                unsafe { ptr_at(&ctx, EthHdr::LEN + Ipv4Hdr::LEN) }?;
             u16::from_be(unsafe { *tcphdr }.source)
         }
-        L4Protocol::Udp => {
+        IpProto::Udp => {
             let udphdr: *const UdpHdr =
-                unsafe { ptr_at(&ctx, ETH_HDR_LEN + IPV4_HDR_LEN) }?;
+                unsafe { ptr_at(&ctx, EthHdr::LEN + Ipv4Hdr::LEN) }?;
             u16::from_be(unsafe { *udphdr }.source)
         }
         _ => return Err(()),
     };
 
-    info!(&ctx, "SRC IP: {}, SRC PORT: {}", saddr, sport);
+    info!(&ctx, "SRC IP: {}, SRC PORT: {}", source_addr, source_port);
 
     Ok(xdp_action::XDP_PASS)
 }
-
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    unsafe { core::hint::unreachable_unchecked() }
-}
 ```
+
+## Naming conventions
+
+When naming stucts and fields, we are trying to stick to the following
+principles:
+
+* Use `CamelCase`, even for names which normally would be all uppercase
+  (e.g. `Icmp` instead of `ICMP`). This is the convention used by the
+  [std::net](https://doc.rust-lang.org/std/net/index.html) module.
+* Where field names (specified by RFCs or other standards) contain spaces,
+  replace them with `_`. In general, use `snake_case` for field names.
+* Shorten the following verbose names:
+  * `source` -> `src`
+  * `destination` -> `dst`
+  * `address` -> `addr`
+
+License: MIT

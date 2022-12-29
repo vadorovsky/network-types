@@ -11,6 +11,10 @@ pub struct IcmpHdr {
     pub un: IcmpHdrUn,
 }
 
+impl IcmpHdr {
+    pub const LEN: usize = mem::size_of::<IcmpHdr>();
+}
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub union IcmpHdrUn {

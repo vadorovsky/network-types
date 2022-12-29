@@ -20,17 +20,7 @@ pub struct TcpHdr {
 }
 
 impl TcpHdr {
-    /// Returns the source port as an unsigned integer of the target's
-    /// endianness.
-    pub fn source_from_be(&self) -> u16 {
-        u16::from_be(self.source)
-    }
-
-    /// Returns the destination port as an unsigned integer of the target's
-    /// endianness.
-    pub fn dest_from_be(&self) -> u16 {
-        u16::from_be(self.dest)
-    }
+    pub const LEN: usize = mem::size_of::<TcpHdr>();
 
     #[inline]
     pub fn res1(&self) -> u16 {
