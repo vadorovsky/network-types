@@ -3,6 +3,7 @@ use core::mem;
 use crate::bitfield::BitfieldUnit;
 
 /// IP headers, which are present after the Ethernet header.
+#[cfg_attr(features = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub enum IpHdr {
     V4(Ipv4Hdr),
     V6(Ipv6Hdr),
@@ -11,6 +12,7 @@ pub enum IpHdr {
 //// IPv4 header, which is present after the Ethernet header.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(features = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Ipv4Hdr {
     pub _bitfield_align_1: [u8; 0],
     pub _bitfield_1: BitfieldUnit<[u8; 1usize]>,
@@ -71,12 +73,14 @@ impl Ipv4Hdr {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
+#[cfg_attr(features = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct in6_addr {
     pub in6_u: in6_u,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone)]
+#[cfg_attr(features = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub union in6_u {
     pub u6_addr8: [u8; 16usize],
     pub u6_addr16: [u16; 8usize],
@@ -85,6 +89,7 @@ pub union in6_u {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
+#[cfg_attr(features = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Ipv6Hdr {
     pub _bitfield_align_1: [u8; 0],
     pub _bitfield_1: BitfieldUnit<[u8; 1usize]>,
@@ -144,6 +149,7 @@ impl Ipv6Hdr {
 /// <https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml>
 #[repr(u8)]
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
+#[cfg_attr(features = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub enum IpProto {
     /// IPv6 Hop-by-Hop Option
     HopOpt = 0,
