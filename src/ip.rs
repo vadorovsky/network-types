@@ -71,18 +71,22 @@ impl Ipv4Hdr {
 
 #[cfg(feature = "std")]
 impl Ipv4Hdr {
+    /// Returns the source address field. As network endianness is big endian, we convert it to host endianness.
     pub fn src_addr(&self) -> std::net::Ipv4Addr {
         std::net::Ipv4Addr::from(u32::from_be(self.src_addr))
     }
 
+    /// Returns the destination address field. As network endianness is big endian, we convert it to host endianness.
     pub fn dst_addr(&self) -> std::net::Ipv4Addr {
         std::net::Ipv4Addr::from(u32::from_be(self.dst_addr))
     }
 
+    /// Sets the source address field. As network endianness is big endian, we convert it from host endianness.
     pub fn set_src_addr(&mut self, src: std::net::Ipv4Addr) {
         self.src_addr = u32::from(src).to_be();
     }
 
+    /// Sets the destination address field. As network endianness is big endian, we convert it from host endianness.
     pub fn set_dst_addr(&mut self, dst: std::net::Ipv4Addr) {
         self.dst_addr = u32::from(dst).to_be();
     }
@@ -161,14 +165,17 @@ impl Ipv6Hdr {
 
 #[cfg(feature = "std")]
 impl Ipv6Hdr {
+    /// Returns the source address field. As network endianness is big endian, we convert it to host endianness.
     pub fn src_addr(&self) -> std::net::Ipv6Addr {
         std::net::Ipv6Addr::from(u128::from_be_bytes(unsafe { self.src_addr.in6_u.u6_addr8 }))
     }
 
+    /// Returns the destination address field. As network endianness is big endian, we convert it to host endianness.
     pub fn dst_addr(&self) -> std::net::Ipv6Addr {
         std::net::Ipv6Addr::from(u128::from_be_bytes(unsafe { self.dst_addr.in6_u.u6_addr8 }))
     }
 
+    /// Sets the source address field. As network endianness is big endian, we convert it from host endianness.
     pub fn set_src_addr(&mut self, src: std::net::Ipv6Addr) {
         self.src_addr = in6_addr {
             in6_u: in6_u {
@@ -177,6 +184,7 @@ impl Ipv6Hdr {
         };
     }
 
+    /// Sets the destination address field. As network endianness is big endian, we convert it from host endianness.
     pub fn set_dst_addr(&mut self, dst: std::net::Ipv6Addr) {
         self.dst_addr = in6_addr {
             in6_u: in6_u {
