@@ -88,7 +88,7 @@
 //!   * `destination` -> `dst`
 //!   * `address` -> `addr`
 
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod bitfield;
 pub mod eth;
