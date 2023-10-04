@@ -69,6 +69,25 @@ impl Ipv4Hdr {
     }
 }
 
+#[cfg(feature = "std")]
+impl Ipv4Hdr {
+    pub fn src(&self) -> std::net::Ipv4Addr {
+        std::net::Ipv4Addr::from(self.src_addr)
+    }
+
+    pub fn dst(&self) -> std::net::Ipv4Addr {
+        std::net::Ipv4Addr::from(self.dst_addr)
+    }
+
+    pub fn set_src(&mut self, src: std::net::Ipv4Addr) {
+        self.src_addr = src.into();
+    }
+
+    pub fn set_dst(&mut self, dst: std::net::Ipv4Addr) {
+        self.dst_addr = dst.into();
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct in6_addr {
@@ -137,6 +156,33 @@ impl Ipv6Hdr {
             version as u64
         });
         bitfield_unit
+    }
+}
+
+#[cfg(feature = "std")]
+impl Ipv6Hdr {
+    pub fn src(&self) -> std::net::Ipv6Addr {
+        std::net::Ipv6Addr::from(unsafe { self.src_addr.in6_u.u6_addr8 })
+    }
+
+    pub fn dst(&self) -> std::net::Ipv6Addr {
+        std::net::Ipv6Addr::from(unsafe { self.dst_addr.in6_u.u6_addr8 })
+    }
+
+    pub fn set_src(&mut self, src: std::net::Ipv6Addr) {
+        self.src_addr = in6_addr {
+            in6_u: in6_u {
+                u6_addr8: src.octets(),
+            },
+        };
+    }
+    
+    pub fn set_dst(&mut self, dst: std::net::Ipv6Addr) {
+        self.dst_addr = in6_addr {
+            in6_u: in6_u {
+                u6_addr8: dst.octets(),
+            },
+        };
     }
 }
 
