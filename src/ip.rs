@@ -71,20 +71,20 @@ impl Ipv4Hdr {
 
 #[cfg(feature = "std")]
 impl Ipv4Hdr {
-    pub fn src(&self) -> std::net::Ipv4Addr {
-        std::net::Ipv4Addr::from(self.src_addr)
+    pub fn src_addr(&self) -> std::net::Ipv4Addr {
+        std::net::Ipv4Addr::from(u32::from_be(self.src_addr))
     }
 
-    pub fn dst(&self) -> std::net::Ipv4Addr {
-        std::net::Ipv4Addr::from(self.dst_addr)
+    pub fn dst_addr(&self) -> std::net::Ipv4Addr {
+        std::net::Ipv4Addr::from(u32::from_be(self.dst_addr))
     }
 
-    pub fn set_src(&mut self, src: std::net::Ipv4Addr) {
-        self.src_addr = src.into();
+    pub fn set_src_addr(&mut self, src: std::net::Ipv4Addr) {
+        self.src_addr = u32::from(src).to_be();
     }
 
-    pub fn set_dst(&mut self, dst: std::net::Ipv4Addr) {
-        self.dst_addr = dst.into();
+    pub fn set_dst_addr(&mut self, dst: std::net::Ipv4Addr) {
+        self.dst_addr = u32::from(dst).to_be();
     }
 }
 
@@ -161,26 +161,26 @@ impl Ipv6Hdr {
 
 #[cfg(feature = "std")]
 impl Ipv6Hdr {
-    pub fn src(&self) -> std::net::Ipv6Addr {
-        std::net::Ipv6Addr::from(unsafe { self.src_addr.in6_u.u6_addr8 })
+    pub fn src_addr(&self) -> std::net::Ipv6Addr {
+        std::net::Ipv6Addr::from(u128::from_be_bytes(unsafe { self.src_addr.in6_u.u6_addr8 }))
     }
 
-    pub fn dst(&self) -> std::net::Ipv6Addr {
-        std::net::Ipv6Addr::from(unsafe { self.dst_addr.in6_u.u6_addr8 })
+    pub fn dst_addr(&self) -> std::net::Ipv6Addr {
+        std::net::Ipv6Addr::from(u128::from_be_bytes(unsafe { self.dst_addr.in6_u.u6_addr8 }))
     }
 
-    pub fn set_src(&mut self, src: std::net::Ipv6Addr) {
+    pub fn set_src_addr(&mut self, src: std::net::Ipv6Addr) {
         self.src_addr = in6_addr {
             in6_u: in6_u {
-                u6_addr8: src.octets(),
+                u6_addr8: u128::from(src).to_be_bytes(),
             },
         };
     }
-    
-    pub fn set_dst(&mut self, dst: std::net::Ipv6Addr) {
+
+    pub fn set_dst_addr(&mut self, dst: std::net::Ipv6Addr) {
         self.dst_addr = in6_addr {
             in6_u: in6_u {
-                u6_addr8: dst.octets(),
+                u6_addr8: u128::from(dst).to_be_bytes(),
             },
         };
     }
@@ -487,4 +487,87 @@ pub enum IpProto {
     Test2 = 254,
     /// Reserved
     Reserved = 255,
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn test_v4() {
+        use core::mem;
+        use std::net::Ipv4Addr;
+
+        use crate::ip::Ipv4Hdr;
+
+        let expected_header_bytes = [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 127, 0, 0, 1, 127, 0, 0, 2,
+        ];
+
+        let ipv4_header: Ipv4Hdr = unsafe {
+            mem::transmute::<[u8; Ipv4Hdr::LEN], _>(expected_header_bytes.try_into().unwrap())
+        };
+        assert_eq!(ipv4_header.src_addr(), Ipv4Addr::new(127, 0, 0, 1));
+        assert_eq!(ipv4_header.dst_addr(), Ipv4Addr::new(127, 0, 0, 2));
+
+        let mut header_bytes = [0u8; 20];
+        let ipv4_header: *mut Ipv4Hdr = &mut header_bytes as *mut _ as *mut _;
+        unsafe {
+            (*ipv4_header).set_src_addr(Ipv4Addr::new(127, 0, 0, 1));
+            (*ipv4_header).set_dst_addr(Ipv4Addr::new(127, 0, 0, 2));
+        }
+
+        let ipv4_header: Ipv4Hdr =
+            unsafe { mem::transmute::<[u8; Ipv4Hdr::LEN], _>(header_bytes.try_into().unwrap()) };
+        assert_eq!(ipv4_header.src_addr(), Ipv4Addr::new(127, 0, 0, 1));
+        assert_eq!(ipv4_header.dst_addr(), Ipv4Addr::new(127, 0, 0, 2));
+
+        assert_eq!(expected_header_bytes, header_bytes);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn test_v6() {
+        use core::mem;
+        use std::net::Ipv6Addr;
+
+        use crate::ip::Ipv6Hdr;
+
+        let expected_header_bytes = [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+        ];
+
+        let ipv6_header: Ipv6Hdr = unsafe {
+            mem::transmute::<[u8; Ipv6Hdr::LEN], _>(expected_header_bytes.try_into().unwrap())
+        };
+        assert_eq!(
+            ipv6_header.src_addr(),
+            Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)
+        );
+        assert_eq!(
+            ipv6_header.dst_addr(),
+            Ipv6Addr::new(2, 0, 0, 0, 0, 0, 0, 1)
+        );
+
+        let mut header_bytes = [0u8; 40];
+        let ipv6_header: *mut Ipv6Hdr = &mut header_bytes as *mut _ as *mut _;
+        unsafe {
+            (*ipv6_header).set_src_addr(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0));
+            (*ipv6_header).set_dst_addr(Ipv6Addr::new(2, 0, 0, 0, 0, 0, 0, 1));
+        }
+
+        let ipv6_header: Ipv6Hdr =
+            unsafe { mem::transmute::<[u8; Ipv6Hdr::LEN], _>(header_bytes.try_into().unwrap()) };
+        assert_eq!(
+            ipv6_header.src_addr(),
+            Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)
+        );
+        assert_eq!(
+            ipv6_header.dst_addr(),
+            Ipv6Addr::new(2, 0, 0, 0, 0, 0, 0, 1)
+        );
+
+        assert_eq!(expected_header_bytes, header_bytes);
+    }
 }
