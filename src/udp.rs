@@ -14,3 +14,24 @@ pub struct UdpHdr {
 impl UdpHdr {
     pub const LEN: usize = mem::size_of::<UdpHdr>();
 }
+
+#[cfg(test)]
+mod test {
+    #[test]
+    #[cfg(feature = "serde")]
+    fn test_serialize() {
+        use super::UdpHdr;
+        use bincode::{config::standard, serde::encode_to_vec};
+
+        let udp = UdpHdr {
+            source: 4242,
+            dest: 4789,
+            len: 42,
+            check: 0,
+        };
+
+        let options = standard().with_fixed_int_encoding().with_big_endian();
+
+        encode_to_vec(udp, options).unwrap();
+    }
+}
