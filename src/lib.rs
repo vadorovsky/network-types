@@ -12,7 +12,7 @@
 //! ```rust
 //! use core::mem;
 //!
-//! use aya_bpf::{bindings::xdp_action, macros::xdp, programs::XdpContext};
+//! use aya_ebpf::{bindings::xdp_action, macros::xdp, programs::XdpContext};
 //! use aya_log_ebpf::info;
 //!
 //! use network_types::{

@@ -13,7 +13,7 @@ edition = "2021"
 serde = { version = "1", default-features = false, features = ["derive"], optional = true }
 
 [dev-dependencies]
-aya-bpf = { git = "https://github.com/aya-rs/aya", branch = "main" }
+aya-ebpf = { git = "https://github.com/aya-rs/aya", branch = "main" }
 aya-log-ebpf = { git = "https://github.com/aya-rs/aya", branch = "main" }
 
 [features]
