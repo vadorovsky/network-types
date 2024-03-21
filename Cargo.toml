@@ -15,6 +15,3 @@ serde = { version = "1", default-features = false, features = ["derive"], option
 [dev-dependencies]
 aya-ebpf = { git = "https://github.com/aya-rs/aya", branch = "main" }
 aya-log-ebpf = { git = "https://github.com/aya-rs/aya", branch = "main" }
-
-[features]
-std = []
