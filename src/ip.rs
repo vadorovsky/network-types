@@ -71,25 +71,24 @@ impl Ipv4Hdr {
     }
 }
 
-#[cfg(feature = "std")]
 impl Ipv4Hdr {
     /// Returns the source address field. As network endianness is big endian, we convert it to host endianness.
-    pub fn src_addr(&self) -> std::net::Ipv4Addr {
-        std::net::Ipv4Addr::from(u32::from_be(self.src_addr))
+    pub fn src_addr(&self) -> core::net::Ipv4Addr {
+        core::net::Ipv4Addr::from(u32::from_be(self.src_addr))
     }
 
     /// Returns the destination address field. As network endianness is big endian, we convert it to host endianness.
-    pub fn dst_addr(&self) -> std::net::Ipv4Addr {
-        std::net::Ipv4Addr::from(u32::from_be(self.dst_addr))
+    pub fn dst_addr(&self) -> core::net::Ipv4Addr {
+        core::net::Ipv4Addr::from(u32::from_be(self.dst_addr))
     }
 
     /// Sets the source address field. As network endianness is big endian, we convert it from host endianness.
-    pub fn set_src_addr(&mut self, src: std::net::Ipv4Addr) {
+    pub fn set_src_addr(&mut self, src: core::net::Ipv4Addr) {
         self.src_addr = u32::from(src).to_be();
     }
 
     /// Sets the destination address field. As network endianness is big endian, we convert it from host endianness.
-    pub fn set_dst_addr(&mut self, dst: std::net::Ipv4Addr) {
+    pub fn set_dst_addr(&mut self, dst: core::net::Ipv4Addr) {
         self.dst_addr = u32::from(dst).to_be();
     }
 }
@@ -168,20 +167,19 @@ impl Ipv6Hdr {
     }
 }
 
-#[cfg(feature = "std")]
 impl Ipv6Hdr {
     /// Returns the source address field. As network endianness is big endian, we convert it to host endianness.
-    pub fn src_addr(&self) -> std::net::Ipv6Addr {
-        std::net::Ipv6Addr::from(u128::from_be_bytes(unsafe { self.src_addr.in6_u.u6_addr8 }))
+    pub fn src_addr(&self) -> core::net::Ipv6Addr {
+        core::net::Ipv6Addr::from(u128::from_be_bytes(unsafe { self.src_addr.in6_u.u6_addr8 }))
     }
 
     /// Returns the destination address field. As network endianness is big endian, we convert it to host endianness.
-    pub fn dst_addr(&self) -> std::net::Ipv6Addr {
-        std::net::Ipv6Addr::from(u128::from_be_bytes(unsafe { self.dst_addr.in6_u.u6_addr8 }))
+    pub fn dst_addr(&self) -> core::net::Ipv6Addr {
+        core::net::Ipv6Addr::from(u128::from_be_bytes(unsafe { self.dst_addr.in6_u.u6_addr8 }))
     }
 
     /// Sets the source address field. As network endianness is big endian, we convert it from host endianness.
-    pub fn set_src_addr(&mut self, src: std::net::Ipv6Addr) {
+    pub fn set_src_addr(&mut self, src: core::net::Ipv6Addr) {
         self.src_addr = in6_addr {
             in6_u: in6_u {
                 u6_addr8: u128::from(src).to_be_bytes(),
@@ -190,7 +188,7 @@ impl Ipv6Hdr {
     }
 
     /// Sets the destination address field. As network endianness is big endian, we convert it from host endianness.
-    pub fn set_dst_addr(&mut self, dst: std::net::Ipv6Addr) {
+    pub fn set_dst_addr(&mut self, dst: core::net::Ipv6Addr) {
         self.dst_addr = in6_addr {
             in6_u: in6_u {
                 u6_addr8: u128::from(dst).to_be_bytes(),
@@ -506,11 +504,10 @@ pub enum IpProto {
 #[cfg(test)]
 mod tests {
 
-    #[cfg(feature = "std")]
     #[test]
     fn test_v4() {
         use core::mem;
-        use std::net::Ipv4Addr;
+        use core::net::Ipv4Addr;
 
         use crate::ip::Ipv4Hdr;
 
@@ -539,11 +536,10 @@ mod tests {
         assert_eq!(expected_header_bytes, header_bytes);
     }
 
-    #[cfg(feature = "std")]
     #[test]
     fn test_v6() {
         use core::mem;
-        use std::net::Ipv6Addr;
+        use core::net::Ipv6Addr;
 
         use crate::ip::Ipv6Hdr;
 
