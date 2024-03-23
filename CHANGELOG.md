@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.6](https://github.com/vadorovsky/network-types/compare/v0.0.5...v0.0.6) - 2024-03-23
+
+### Fixed
+- follow rename of aya-bpf to aya-ebpf ([#15](https://github.com/vadorovsky/network-types/pull/15))
+
+### Other
+- use new core::net instead of std::net, dropping the std feature ([#17](https://github.com/vadorovsky/network-types/pull/17))
+
 ## [0.0.5](https://github.com/vadorovsky/network-types/compare/v0.0.4...v0.0.5) - 2023-11-30
 
 ### Added
