@@ -5,7 +5,7 @@ use crate::bitfield::BitfieldUnit;
 /// VXLAN header, which is present at the beginning of every UDP payload containing VXLAN packets.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(features = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct VxlanHdr {
     /// VXLAN flags. See [`VxlanHdr::vni_valid`] and [`VxlanHdr::set_vni_valid`].
     pub flags: BitfieldUnit<[u8; 1usize]>,
