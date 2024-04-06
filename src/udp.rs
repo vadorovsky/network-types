@@ -3,7 +3,7 @@ use core::mem;
 /// UDP header, which is present after the IP header.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(features = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct UdpHdr {
     pub source: u16,
     pub dest: u16,
