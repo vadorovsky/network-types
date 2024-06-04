@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.6](https://github.com/vadorovsky/network-types/compare/v0.0.5...v0.0.6) - 2024-06-04
+
+### Fixed
+- fix serializing UDP header struct and add test
+- Drop usage of `u128` in `Ipv6Hdr`
+- follow rename of aya-bpf to aya-ebpf ([#15](https://github.com/vadorovsky/network-types/pull/15))
+
+### Other
+- Handle IPv6 in the code example
+- fix cfg_attr test ([#13](https://github.com/vadorovsky/network-types/pull/13))
+- use new core::net instead of std::net, dropping the std feature ([#17](https://github.com/vadorovsky/network-types/pull/17))
+
 ## [0.0.5](https://github.com/vadorovsky/network-types/compare/v0.0.4...v0.0.5) - 2023-11-30
 
 ### Added
