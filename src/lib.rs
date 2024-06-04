@@ -17,7 +17,7 @@
 //!
 //! use network_types::{
 //!     eth::{EthHdr, EtherType},
-//!     ip::{Ipv4Hdr, IpProto},
+//!     ip::{Ipv4Hdr, Ipv6Hdr, IpProto},
 //!     tcp::TcpHdr,
 //!     udp::UdpHdr,
 //! };
@@ -46,28 +46,48 @@
 //! fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
 //!     let ethhdr: *const EthHdr = unsafe { ptr_at(&ctx, 0)? };
 //!     match unsafe { *ethhdr }.ether_type {
-//!         EtherType::Ipv4 => {}
-//!         _ => return Ok(xdp_action::XDP_PASS),
+//!         EtherType::Ipv4 => {
+//!             let ipv4hdr: *const Ipv4Hdr = unsafe { ptr_at(&ctx, EthHdr::LEN)? };
+//!             let source_addr = unsafe { (*ipv4hdr).src_addr };
+//!
+//!             let source_port = match unsafe { (*ipv4hdr).proto } {
+//!                 IpProto::Tcp => {
+//!                     let tcphdr: *const TcpHdr =
+//!                         unsafe { ptr_at(&ctx, EthHdr::LEN + Ipv4Hdr::LEN) }?;
+//!                     u16::from_be(unsafe { (*tcphdr).source })
+//!                 }
+//!                 IpProto::Udp => {
+//!                     let udphdr: *const UdpHdr =
+//!                         unsafe { ptr_at(&ctx, EthHdr::LEN + Ipv4Hdr::LEN) }?;
+//!                     u16::from_be(unsafe { (*udphdr).source })
+//!                 }
+//!                 _ => return Ok(xdp_action::XDP_PASS),
+//!             };
+//!
+//!             info!(&ctx, "SRC IP: {:i}, SRC PORT: {}", source_addr, source_port);
+//!         }
+//!         EtherType::Ipv6 => {
+//!             let ipv6hdr: *const Ipv6Hdr = unsafe { ptr_at(&ctx, EthHdr::LEN)? };
+//!             let source_addr = unsafe { (*ipv6hdr).src_addr.in6_u.u6_addr8 };
+//!
+//!             let source_port = match unsafe { (*ipv6hdr).next_hdr } {
+//!                 IpProto::Tcp => {
+//!                     let tcphdr: *const TcpHdr =
+//!                         unsafe { ptr_at(&ctx, EthHdr::LEN  + Ipv6Hdr::LEN) }?;
+//!                     u16::from_be(unsafe { (*tcphdr).source })
+//!                 }
+//!                 IpProto::Udp => {
+//!                     let udphdr: *const UdpHdr =
+//!                         unsafe { ptr_at(&ctx, EthHdr::LEN + Ipv6Hdr::LEN) }?;
+//!                     u16::from_be(unsafe { (*udphdr).source })
+//!                 }
+//!                 _ => return Ok(xdp_action::XDP_PASS),
+//!             };
+//!
+//!             info!(&ctx, "SRC IP: {:i}, SRC PORT: {}", source_addr, source_port);
+//!         }
+//!         _ => {},
 //!     }
-//!
-//!     let ipv4hdr: *const Ipv4Hdr = unsafe { ptr_at(&ctx, EthHdr::LEN)? };
-//!     let source_addr = u32::from_be(unsafe { *ipv4hdr }.src_addr);
-//!
-//!     let source_port = match unsafe { *ipv4hdr }.proto {
-//!         IpProto::Tcp => {
-//!             let tcphdr: *const TcpHdr =
-//!                 unsafe { ptr_at(&ctx, EthHdr::LEN + Ipv4Hdr::LEN) }?;
-//!             u16::from_be(unsafe { *tcphdr }.source)
-//!         }
-//!         IpProto::Udp => {
-//!             let udphdr: *const UdpHdr =
-//!                 unsafe { ptr_at(&ctx, EthHdr::LEN + Ipv4Hdr::LEN) }?;
-//!             u16::from_be(unsafe { *udphdr }.source)
-//!         }
-//!         _ => return Err(()),
-//!     };
-//!
-//!     info!(&ctx, "SRC IP: {}, SRC PORT: {}", source_addr, source_port);
 //!
 //!     Ok(xdp_action::XDP_PASS)
 //! }

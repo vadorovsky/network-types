@@ -168,12 +168,12 @@ impl Ipv6Hdr {
 }
 
 impl Ipv6Hdr {
-    /// Returns the source address field. As network endianness is big endian, we convert it to host endianness.
+    /// Returns the source address field.
     pub fn src_addr(&self) -> core::net::Ipv6Addr {
         core::net::Ipv6Addr::from(unsafe { self.src_addr.in6_u.u6_addr8 })
     }
 
-    /// Returns the destination address field. As network endianness is big endian, we convert it to host endianness.
+    /// Returns the destination address field.
     pub fn dst_addr(&self) -> core::net::Ipv6Addr {
         core::net::Ipv6Addr::from(unsafe { self.dst_addr.in6_u.u6_addr8 })
     }
