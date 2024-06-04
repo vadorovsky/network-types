@@ -170,19 +170,19 @@ impl Ipv6Hdr {
 impl Ipv6Hdr {
     /// Returns the source address field. As network endianness is big endian, we convert it to host endianness.
     pub fn src_addr(&self) -> core::net::Ipv6Addr {
-        core::net::Ipv6Addr::from(u128::from_be_bytes(unsafe { self.src_addr.in6_u.u6_addr8 }))
+        core::net::Ipv6Addr::from(unsafe { self.src_addr.in6_u.u6_addr8 })
     }
 
     /// Returns the destination address field. As network endianness is big endian, we convert it to host endianness.
     pub fn dst_addr(&self) -> core::net::Ipv6Addr {
-        core::net::Ipv6Addr::from(u128::from_be_bytes(unsafe { self.dst_addr.in6_u.u6_addr8 }))
+        core::net::Ipv6Addr::from(unsafe { self.dst_addr.in6_u.u6_addr8 })
     }
 
     /// Sets the source address field. As network endianness is big endian, we convert it from host endianness.
     pub fn set_src_addr(&mut self, src: core::net::Ipv6Addr) {
         self.src_addr = in6_addr {
             in6_u: in6_u {
-                u6_addr8: u128::from(src).to_be_bytes(),
+                u6_addr8: src.octets(),
             },
         };
     }
@@ -191,7 +191,7 @@ impl Ipv6Hdr {
     pub fn set_dst_addr(&mut self, dst: core::net::Ipv6Addr) {
         self.dst_addr = in6_addr {
             in6_u: in6_u {
-                u6_addr8: u128::from(dst).to_be_bytes(),
+                u6_addr8: dst.octets(),
             },
         };
     }
