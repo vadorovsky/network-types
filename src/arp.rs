@@ -10,10 +10,10 @@ pub struct ArpHdr {
     pub hlen: u8,
     pub plen: u8,
     pub oper: u16,
-    pub sha: [u16; 3],
-    pub spa: u32,
-    pub tha: [u16; 3],
-    pub tpa: u32,
+    pub sha: [u8; 6],
+    pub spa: [u8; 4],
+    pub tha: [u8; 6],
+    pub tpa: [u8; 4],
 }
 
 impl ArpHdr {
