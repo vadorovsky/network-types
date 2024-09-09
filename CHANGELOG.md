@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.7](https://github.com/vadorovsky/network-types/compare/v0.0.6...v0.0.7) - 2024-09-09
+
+### Other
+
+- Add ARP header ([#23](https://github.com/vadorovsky/network-types/pull/23))
+
 ## [0.0.6](https://github.com/vadorovsky/network-types/compare/v0.0.5...v0.0.6) - 2024-06-04
 
 ### Fixed
