@@ -54,7 +54,6 @@ impl MacHdr {
     pub fn tds(&self) -> u16 {
         unsafe { ::core::mem::transmute(self._bitfield_frame_ctl.get(8, 9) as u16) }
     }
-    // set to to_ds
     #[inline]
     pub fn set_tds(&mut self, val: u16) {
         unsafe {
