@@ -120,31 +120,15 @@ impl Ipv4Hdr {
 #[repr(C)]
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
-pub struct in6_addr {
-    pub in6_u: in6_u,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
-pub union in6_u {
-    pub u6_addr8: [u8; 16usize],
-    pub u6_addr16: [u16; 8usize],
-    pub u6_addr32: [u32; 4usize],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Ipv6Hdr {
     pub _bitfield_align_1: [u8; 0],
     pub _bitfield_1: BitfieldUnit<[u8; 1usize]>,
     pub flow_label: [u8; 3usize],
-    pub payload_len: u16,
+    pub payload_len: [u8; 2],
     pub next_hdr: IpProto,
     pub hop_limit: u8,
-    pub src_addr: in6_addr,
-    pub dst_addr: in6_addr,
+    pub src_addr: [u8; 16],
+    pub dst_addr: [u8; 16],
 }
 
 impl Ipv6Hdr {
@@ -192,32 +176,34 @@ impl Ipv6Hdr {
 }
 
 impl Ipv6Hdr {
+    /// Returns the payload length.
+    pub fn payload_len(&self) -> u16 {
+        u16::from_be_bytes(self.payload_len)
+    }
+
+    /// Sets the payload length.
+    pub fn set_payload_len(&mut self, len: u16) {
+        self.payload_len = len.to_be_bytes();
+    }
+
     /// Returns the source address field.
     pub fn src_addr(&self) -> core::net::Ipv6Addr {
-        core::net::Ipv6Addr::from(unsafe { self.src_addr.in6_u.u6_addr8 })
+        core::net::Ipv6Addr::from(self.src_addr)
     }
 
     /// Returns the destination address field.
     pub fn dst_addr(&self) -> core::net::Ipv6Addr {
-        core::net::Ipv6Addr::from(unsafe { self.dst_addr.in6_u.u6_addr8 })
+        core::net::Ipv6Addr::from(self.dst_addr)
     }
 
     /// Sets the source address field. As network endianness is big endian, we convert it from host endianness.
     pub fn set_src_addr(&mut self, src: core::net::Ipv6Addr) {
-        self.src_addr = in6_addr {
-            in6_u: in6_u {
-                u6_addr8: src.octets(),
-            },
-        };
+        self.src_addr = src.octets();
     }
 
     /// Sets the destination address field. As network endianness is big endian, we convert it from host endianness.
     pub fn set_dst_addr(&mut self, dst: core::net::Ipv6Addr) {
-        self.dst_addr = in6_addr {
-            in6_u: in6_u {
-                u6_addr8: dst.octets(),
-            },
-        };
+        self.dst_addr = dst.octets();
     }
 }
 
