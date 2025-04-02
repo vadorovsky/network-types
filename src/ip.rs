@@ -17,14 +17,14 @@ pub struct Ipv4Hdr {
     pub _bitfield_align_1: [u8; 0],
     pub _bitfield_1: BitfieldUnit<[u8; 1usize]>,
     pub tos: u8,
-    pub tot_len: u16,
-    pub id: u16,
-    pub frag_off: u16,
+    pub tot_len: [u8; 2],
+    pub id: [u8; 2],
+    pub frag_off: [u8; 2],
     pub ttl: u8,
     pub proto: IpProto,
-    pub check: u16,
-    pub src_addr: u32,
-    pub dst_addr: u32,
+    pub check: [u8; 2],
+    pub src_addr: [u8; 4],
+    pub dst_addr: [u8; 4],
 }
 
 impl Ipv4Hdr {
@@ -72,24 +72,48 @@ impl Ipv4Hdr {
 }
 
 impl Ipv4Hdr {
+    pub fn total_len(&self) -> u16 {
+        u16::from_be_bytes(self.tot_len)
+    }
+
+    pub fn set_total_len(&mut self, len: u16) {
+        self.tot_len = len.to_be_bytes();
+    }
+
+    pub fn id(&self) -> u16 {
+        u16::from_be_bytes(self.id)
+    }
+
+    pub fn set_id(&mut self, id: u16) {
+        self.id = id.to_be_bytes();
+    }
+
+    pub fn checksum(&self) -> u16 {
+        u16::from_be_bytes(self.check)
+    }
+
+    pub fn set_checksum(&mut self, checksum: u16) {
+        self.check = checksum.to_be_bytes();
+    }
+
     /// Returns the source address field. As network endianness is big endian, we convert it to host endianness.
     pub fn src_addr(&self) -> core::net::Ipv4Addr {
-        core::net::Ipv4Addr::from(u32::from_be(self.src_addr))
+        core::net::Ipv4Addr::from(self.src_addr)
     }
 
     /// Returns the destination address field. As network endianness is big endian, we convert it to host endianness.
     pub fn dst_addr(&self) -> core::net::Ipv4Addr {
-        core::net::Ipv4Addr::from(u32::from_be(self.dst_addr))
+        core::net::Ipv4Addr::from(self.dst_addr)
     }
 
     /// Sets the source address field. As network endianness is big endian, we convert it from host endianness.
     pub fn set_src_addr(&mut self, src: core::net::Ipv4Addr) {
-        self.src_addr = u32::from(src).to_be();
+        self.src_addr = src.octets();
     }
 
     /// Sets the destination address field. As network endianness is big endian, we convert it from host endianness.
     pub fn set_dst_addr(&mut self, dst: core::net::Ipv4Addr) {
-        self.dst_addr = u32::from(dst).to_be();
+        self.dst_addr = dst.octets();
     }
 }
 
