@@ -68,7 +68,7 @@
 //!         }
 //!         EtherType::Ipv6 => {
 //!             let ipv6hdr: *const Ipv6Hdr = unsafe { ptr_at(&ctx, EthHdr::LEN)? };
-//!             let source_addr = unsafe { (*ipv6hdr).src_addr.in6_u.u6_addr8 };
+//!             let source_addr = unsafe { (*ipv6hdr).src_addr() };
 //!
 //!             let source_port = match unsafe { (*ipv6hdr).next_hdr } {
 //!                 IpProto::Tcp => {
@@ -124,7 +124,7 @@ pub mod bitfield;
 pub mod eth;
 pub mod icmp;
 pub mod ip;
+pub mod mac;
 pub mod tcp;
 pub mod udp;
 pub mod vxlan;
-pub mod mac;

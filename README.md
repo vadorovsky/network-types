@@ -70,7 +70,7 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
         }
         EtherType::Ipv6 => {
             let ipv6hdr: *const Ipv6Hdr = unsafe { ptr_at(&ctx, EthHdr::LEN)? };
-            let source_addr = unsafe { (*ipv6hdr).src_addr.in6_u.u6_addr8 };
+            let source_addr = unsafe { (*ipv6hdr).src_addr() };
 
             let source_port = match unsafe { (*ipv6hdr).next_hdr } {
                 IpProto::Tcp => {
