@@ -61,7 +61,7 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
                 IpProto::Udp => {
                     let udphdr: *const UdpHdr =
                         unsafe { ptr_at(&ctx, EthHdr::LEN + Ipv4Hdr::LEN) }?;
-                    u16::from_be(unsafe { (*udphdr).source })
+                    unsafe { (*udphdr).source() }
                 }
                 _ => return Ok(xdp_action::XDP_PASS),
             };
@@ -81,7 +81,7 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
                 IpProto::Udp => {
                     let udphdr: *const UdpHdr =
                         unsafe { ptr_at(&ctx, EthHdr::LEN + Ipv6Hdr::LEN) }?;
-                    u16::from_be(unsafe { (*udphdr).source })
+                    unsafe { (*udphdr).source() }
                 }
                 _ => return Ok(xdp_action::XDP_PASS),
             };
