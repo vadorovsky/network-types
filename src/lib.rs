@@ -59,7 +59,7 @@
 //!                 IpProto::Udp => {
 //!                     let udphdr: *const UdpHdr =
 //!                         unsafe { ptr_at(&ctx, EthHdr::LEN + Ipv4Hdr::LEN) }?;
-//!                     u16::from_be(unsafe { (*udphdr).source })
+//!                     unsafe { (*udphdr).source() }
 //!                 }
 //!                 _ => return Ok(xdp_action::XDP_PASS),
 //!             };
@@ -79,7 +79,7 @@
 //!                 IpProto::Udp => {
 //!                     let udphdr: *const UdpHdr =
 //!                         unsafe { ptr_at(&ctx, EthHdr::LEN + Ipv6Hdr::LEN) }?;
-//!                     u16::from_be(unsafe { (*udphdr).source })
+//!                     unsafe { (*udphdr).source() }
 //!                 }
 //!                 _ => return Ok(xdp_action::XDP_PASS),
 //!             };
@@ -124,7 +124,7 @@ pub mod bitfield;
 pub mod eth;
 pub mod icmp;
 pub mod ip;
+pub mod mac;
 pub mod tcp;
 pub mod udp;
 pub mod vxlan;
-pub mod mac;
