@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.8](https://github.com/vadorovsky/network-types/compare/v0.0.7...v0.0.8) - 2025-04-04
+
+### Added
+
+- Add MacHdr ([#20](https://github.com/vadorovsky/network-types/pull/20))
+
+### Other
+
+- Embed readme in doc
+- *(ipv4)* Use byte-arrays to store addresses and u16s
+- Use `src_addr` methods from IP header structs
+- Add mac to lib.rs
+
 ## [0.0.7](https://github.com/vadorovsky/network-types/compare/v0.0.6...v0.0.7) - 2024-09-09
 
 ### Other
