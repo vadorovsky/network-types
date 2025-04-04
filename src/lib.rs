@@ -124,7 +124,7 @@ pub mod bitfield;
 pub mod eth;
 pub mod icmp;
 pub mod ip;
+pub mod mac;
 pub mod tcp;
 pub mod udp;
 pub mod vxlan;
-pub mod mac;
