@@ -25,8 +25,12 @@ pub enum EtherType {
     Loop = 0x0060_u16.to_be(),
     Ipv4 = 0x0800_u16.to_be(),
     Arp = 0x0806_u16.to_be(),
+    VlanTag = 0x8100_u16.to_be(),
     Ipv6 = 0x86DD_u16.to_be(),
+    Ieee8021q = 0x88A8_u16.to_be(),
+    Ieee8021aeMacSec = 0x88E7_u16.to_be(),
     FibreChannel = 0x8906_u16.to_be(),
     Infiniband = 0x8915_u16.to_be(),
     LoopbackIeee8023 = 0x9000_u16.to_be(),
+    Ieee8021qQinQ = 0x9100_u16.to_be(),
 }
