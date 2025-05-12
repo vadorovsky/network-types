@@ -1,4 +1,5 @@
 use core::mem;
+use crate::eth::EtherType;
 
 /// VLAN tag header structure
 #[repr(C, packed)]
@@ -8,7 +9,7 @@ pub struct VlanHdr {
     /// First 2 bytes containing PCP (3 bits), DEI (1 bit), and VLAN ID (12 bits)
     pub tci: u16,
     /// EtherType field indicating the protocol encapsulated in the payload
-    pub eth_type: u16,
+    pub eth_type: EtherType,
 }
 
 impl VlanHdr {
@@ -34,7 +35,7 @@ impl VlanHdr {
     
     /// Get the EtherType value
     #[inline]
-    pub fn eth_type(&self) -> u16 {
-        u16::from_be(self.eth_type)
+    pub fn eth_type(&self) -> EtherType {
+        self.eth_type
     }
 }
