@@ -75,24 +75,23 @@ impl TryFrom<u16> for EtherType {
     type Error = u16; // Return the unknown value itself as the error
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
-        match value {
-            v if v == Self::Loop as u16 => Ok(Self::Loop),
-            v if v == Self::Ipv4 as u16 => Ok(Self::Ipv4),
-            v if v == Self::Arp as u16 => Ok(Self::Arp),
-            v if v == Self::Ieee8021q as u16 => Ok(Self::Ieee8021q),
-            v if v == Self::Ipv6 as u16 => Ok(Self::Ipv6),
-            v if v == Self::Ieee8021ad as u16 => Ok(Self::Ieee8021ad),
-            v if v == Self::Ieee8021MacSec as u16 => Ok(Self::Ieee8021MacSec),
-            v if v == Self::Ieee8021ah as u16 => Ok(Self::Ieee8021ah),
-            v if v == Self::Ieee8021mvrp as u16 => Ok(Self::Ieee8021mvrp),
-            v if v == Self::FibreChannel as u16 => Ok(Self::FibreChannel),
-            v if v == Self::Infiniband as u16 => Ok(Self::Infiniband),
-            v if v == Self::LoopbackIeee8023 as u16 => Ok(Self::LoopbackIeee8023),
-            v if v == Self::Ieee8021QinQ1 as u16 => Ok(Self::Ieee8021QinQ1),
-            v if v == Self::Ieee8021QinQ2 as u16 => Ok(Self::Ieee8021QinQ2),
-            v if v == Self::Ieee8021QinQ3 as u16 => Ok(Self::Ieee8021QinQ3),
-            // For any other value, return an error
-            unknown_value => Err(unknown_value),
+        match value.to_be() {
+            0x0060_u16 => Ok(EtherType::Loop),
+            0x0800_u16 => Ok(EtherType::Ipv4),
+            0x0806_u16 => Ok(EtherType::Arp),
+            0x8100_u16 => Ok(EtherType::Ieee8021q),
+            0x86DD_u16 => Ok(EtherType::Ipv6),
+            0x88A8_u16 => Ok(EtherType::Ieee8021ad),
+            0x88E5_u16 => Ok(EtherType::Ieee8021MacSec),
+            0x88E7_u16 => Ok(EtherType::Ieee8021ah),
+            0x88F5_u16 => Ok(EtherType::Ieee8021mvrp),
+            0x8906_u16 => Ok(EtherType::FibreChannel),
+            0x8915_u16 => Ok(EtherType::Infiniband),
+            0x9000_u16 => Ok(EtherType::LoopbackIeee8023),
+            0x9100_u16 => Ok(EtherType::Ieee8021QinQ1),
+            0x9200_u16 => Ok(EtherType::Ieee8021QinQ2),
+            0x9300_u16 => Ok(EtherType::Ieee8021QinQ3),
+            _ => Err(value),
         }
     }
 }
