@@ -13,7 +13,7 @@ jobs:
 
   release-plz:
     name: release-plz
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       # Generating a GitHub token, so that PRs and tags created by
       # the release-plz-action can trigger actions workflows.
