@@ -1,5 +1,5 @@
-use core::mem;
 use crate::eth::EtherType;
+use core::mem;
 
 /// VLAN tag header structure
 #[repr(C, packed)]
@@ -32,7 +32,7 @@ impl VlanHdr {
     pub fn vid(&self) -> u16 {
         u16::from_be(self.tci) & 0xFFF
     }
-    
+
     /// Get the EtherType value
     #[inline]
     pub fn eth_type(&self) -> EtherType {
