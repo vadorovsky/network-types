@@ -1,5 +1,5 @@
 use core::mem;
-use std::io::{Read, Result as IoResult, Error as IoError, ErrorKind};
+use core::ptr;
 
 /// Internet Group Management Protocol (IGMP) .
 #[repr(C, packed)]
@@ -89,7 +89,9 @@ impl IgmpV3Hdr {
         }
 
         //Extract expected number of sources to read from the header, convert from big endian to a number
-        let num_sources_be = ptr::read_volatile(&((*header_ptr).num_sources));
+        //Get pointer to location first
+        let num_sources_ptr = ptr::addr_of!((*header_ptr).num_sources);
+        let num_sources_be = unsafe {ptr::read_unaligned(num_sources_ptr)};
         let num_sources_expected = u16::from_be(num_sources_be) as usize;
 
         //Calculate starting location of Source Addresses, directly after IGMPv3 header struct
@@ -114,6 +116,8 @@ impl IgmpV3Hdr {
             let source_ip_be = ptr::read_volatile(sources_start_ptr.add(i));
             output_sources_slice[i] = u32::from_be(source_ip_be);
         }
+        
+        Ok(num_to_copy)
 
     } // End of read sources helper function
 
