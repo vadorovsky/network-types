@@ -1,7 +1,5 @@
 use core::mem;
 
-use crate::bitfield::BitfieldUnit;
-
 /// IP headers, which are present after the Ethernet header.
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub enum IpHdr {
@@ -20,7 +18,7 @@ pub struct Ipv4Hdr {
     pub id: [u8; 2],
     pub frags: [u8; 2],
     pub ttl: u8,
-    pub proto: u8,
+    pub proto: IpProto,
     pub check: [u8; 2],
     pub src_addr: [u8; 4],
     pub dst_addr: [u8; 4],
@@ -146,91 +144,118 @@ impl Ipv4Hdr {
     }
 }
 
+/// IPv6 header, which is present after the Ethernet header.
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Ipv6Hdr {
-    pub _bitfield_align_1: [u8; 0],
-    pub _bitfield_1: BitfieldUnit<[u8; 1usize]>,
-    pub flow_label: [u8; 3usize],
+    /// First 4 bytes containing Version (4 bits), Traffic Class (8 bits), and Flow Label (20 bits)
+    pub vcf: [u8; 4],
+    /// Payload length (excluding the IPv6 header)
     pub payload_len: [u8; 2],
+    /// Next header protocol
     pub next_hdr: IpProto,
+    /// Hop limit (similar to TTL in IPv4)
     pub hop_limit: u8,
+    /// Source IPv6 address (16 bytes)
     pub src_addr: [u8; 16],
+    /// Destination IPv6 address (16 bytes)
     pub dst_addr: [u8; 16],
 }
 
 impl Ipv6Hdr {
     pub const LEN: usize = mem::size_of::<Ipv6Hdr>();
 
-    #[inline]
-    pub fn priority(&self) -> u8 {
-        unsafe { mem::transmute(self._bitfield_1.get(0usize, 4u8) as u8) }
-    }
-
-    #[inline]
-    pub fn set_priority(&mut self, val: u8) {
-        unsafe {
-            let val: u8 = mem::transmute(val);
-            self._bitfield_1.set(0usize, 4u8, val as u64)
-        }
-    }
-
+    /// Returns the IP version field (should be 6).
     #[inline]
     pub fn version(&self) -> u8 {
-        unsafe { mem::transmute(self._bitfield_1.get(4usize, 4u8) as u8) }
+        (self.vcf[0] >> 4) & 0xF
     }
 
+    /// Sets the version field.
     #[inline]
-    pub fn set_version(&mut self, val: u8) {
-        unsafe {
-            let val: u8 = mem::transmute(val);
-            self._bitfield_1.set(4usize, 4u8, val as u64)
-        }
+    pub fn set_version(&mut self, version: u8) {
+        self.vcf[0] = (self.vcf[0] & 0x0F) | ((version & 0xF) << 4);
     }
 
+    /// Returns the DSCP (Differentiated Services Code Point) field.
     #[inline]
-    pub fn new_bitfield_1(priority: u8, version: u8) -> BitfieldUnit<[u8; 1usize]> {
-        let mut bitfield_unit: BitfieldUnit<[u8; 1usize]> = Default::default();
-        bitfield_unit.set(0usize, 4u8, {
-            let priority: u8 = unsafe { mem::transmute(priority) };
-            priority as u64
-        });
-        bitfield_unit.set(4usize, 4u8, {
-            let version: u8 = unsafe { mem::transmute(version) };
-            version as u64
-        });
-        bitfield_unit
+    pub fn dscp(&self) -> u8 {
+        ((self.vcf[0] & 0x0F) << 2) | ((self.vcf[1] >> 6) & 0x03)
     }
-}
 
-impl Ipv6Hdr {
+    /// Returns the ECN (Explicit Congestion Notification) field.
+    #[inline]
+    pub fn ecn(&self) -> u8 {
+        (self.vcf[1] >> 4) & 0x03
+    }
+
+    /// Returns the flow label field (20 bits).
+    #[inline]
+    pub fn flow_label(&self) -> u32 {
+        ((self.vcf[1] as u32 & 0x0F) << 16) | ((self.vcf[2] as u32) << 8) | (self.vcf[3] as u32)
+    }
+
+    /// Sets the DSCP and ECN fields.
+    #[inline]
+    pub fn set_dscp_ecn(&mut self, dscp: u8, ecn: u8) {
+        // Set the lower 4 bits of the first byte (upper 4 bits of DSCP)
+        self.vcf[0] = (self.vcf[0] & 0xF0) | ((dscp >> 2) & 0x0F);
+
+        // Set the upper 2 bits of the second byte (lower 2 bits of DSCP) and the next 2 bits (ECN)
+        self.vcf[1] = (self.vcf[1] & 0x0F) | (((dscp & 0x03) << 6) | ((ecn & 0x03) << 4));
+    }
+
+    /// Sets the flow label field (20 bits).
+    #[inline]
+    pub fn set_flow_label(&mut self, flow_label: u32) {
+        self.vcf[1] = (self.vcf[1] & 0xF0) | ((flow_label >> 16) as u8 & 0x0F);
+        self.vcf[2] = ((flow_label >> 8) & 0xFF) as u8;
+        self.vcf[3] = (flow_label & 0xFF) as u8;
+    }
+
+    /// Sets the version, DSCP, ECN, and flow label in one operation.
+    #[inline]
+    pub fn set_vcf(&mut self, version: u8, dscp: u8, ecn: u8, flow_label: u32) {
+        self.vcf[0] = ((version & 0x0F) << 4) | ((dscp >> 2) & 0x0F);
+        self.vcf[1] =
+            ((dscp & 0x03) << 6) | ((ecn & 0x03) << 4) | ((flow_label >> 16) as u8 & 0x0F);
+        self.vcf[2] = ((flow_label >> 8) & 0xFF) as u8;
+        self.vcf[3] = (flow_label & 0xFF) as u8;
+    }
+
     /// Returns the payload length.
+    #[inline]
     pub fn payload_len(&self) -> u16 {
         u16::from_be_bytes(self.payload_len)
     }
 
     /// Sets the payload length.
+    #[inline]
     pub fn set_payload_len(&mut self, len: u16) {
         self.payload_len = len.to_be_bytes();
     }
 
     /// Returns the source address field.
+    #[inline]
     pub fn src_addr(&self) -> core::net::Ipv6Addr {
         core::net::Ipv6Addr::from(self.src_addr)
     }
 
     /// Returns the destination address field.
+    #[inline]
     pub fn dst_addr(&self) -> core::net::Ipv6Addr {
         core::net::Ipv6Addr::from(self.dst_addr)
     }
 
-    /// Sets the source address field. As network endianness is big endian, we convert it from host endianness.
+    /// Sets the source address field.
+    #[inline]
     pub fn set_src_addr(&mut self, src: core::net::Ipv6Addr) {
         self.src_addr = src.octets();
     }
 
-    /// Sets the destination address field. As network endianness is big endian, we convert it from host endianness.
+    /// Sets the destination address field.
+    #[inline]
     pub fn set_dst_addr(&mut self, dst: core::net::Ipv6Addr) {
         self.dst_addr = dst.octets();
     }
@@ -542,81 +567,208 @@ pub enum IpProto {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use core::net::{Ipv4Addr, Ipv6Addr};
 
-    #[test]
-    fn test_v4() {
-        use core::mem;
-        use core::net::Ipv4Addr;
-
-        use crate::ip::Ipv4Hdr;
-
-        let expected_header_bytes = [
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 127, 0, 0, 1, 127, 0, 0, 2,
-        ];
-
-        let ipv4_header: Ipv4Hdr = unsafe {
-            mem::transmute::<[u8; Ipv4Hdr::LEN], _>(expected_header_bytes.try_into().unwrap())
-        };
-        assert_eq!(ipv4_header.src_addr(), Ipv4Addr::new(127, 0, 0, 1));
-        assert_eq!(ipv4_header.dst_addr(), Ipv4Addr::new(127, 0, 0, 2));
-
-        let mut header_bytes = [0u8; 20];
-        let ipv4_header: *mut Ipv4Hdr = &mut header_bytes as *mut _ as *mut _;
-        unsafe {
-            (*ipv4_header).set_src_addr(Ipv4Addr::new(127, 0, 0, 1));
-            (*ipv4_header).set_dst_addr(Ipv4Addr::new(127, 0, 0, 2));
+    // Helper to create a default Ipv4Hdr for tests
+    fn default_ipv4_hdr() -> Ipv4Hdr {
+        Ipv4Hdr {
+            vihl: 0,
+            tos: 0,
+            tot_len: [0; 2],
+            id: [0; 2],
+            frags: [0; 2],
+            ttl: 0,
+            proto: IpProto::Tcp,
+            check: [0; 2],
+            src_addr: [0; 4],
+            dst_addr: [0; 4],
         }
+    }
 
-        let ipv4_header: Ipv4Hdr =
-            unsafe { mem::transmute::<[u8; Ipv4Hdr::LEN], _>(header_bytes.try_into().unwrap()) };
-        assert_eq!(ipv4_header.src_addr(), Ipv4Addr::new(127, 0, 0, 1));
-        assert_eq!(ipv4_header.dst_addr(), Ipv4Addr::new(127, 0, 0, 2));
-
-        assert_eq!(expected_header_bytes, header_bytes);
+    // Helper to create a default Ipv6Hdr for tests
+    fn default_ipv6_hdr() -> Ipv6Hdr {
+        Ipv6Hdr {
+            vcf: [0; 4],
+            payload_len: [0; 2],
+            next_hdr: IpProto::Tcp,
+            hop_limit: 0,
+            src_addr: [0; 16],
+            dst_addr: [0; 16],
+        }
     }
 
     #[test]
-    fn test_v6() {
-        use core::mem;
-        use core::net::Ipv6Addr;
+    fn test_ipv4_vihl() {
+        let mut hdr = default_ipv4_hdr();
+        hdr.set_vihl(4, 20); // Version 4, IHL 20 bytes (5 words)
+        assert_eq!(hdr.version(), 4);
+        assert_eq!(hdr.ihl(), 20);
 
-        use crate::ip::Ipv6Hdr;
+        hdr.set_vihl(4, 24); // Version 4, IHL 24 bytes (6 words)
+        assert_eq!(hdr.version(), 4);
+        assert_eq!(hdr.ihl(), 24);
+    }
 
-        let expected_header_bytes = [
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-        ];
+    #[test]
+    fn test_ipv4_tos() {
+        let mut hdr = default_ipv4_hdr();
+        hdr.set_tos(0b001010, 0b01); // DSCP 10, ECN 1
+        assert_eq!(hdr.dscp(), 0b001010);
+        assert_eq!(hdr.ecn(), 0b01);
 
-        let ipv6_header: Ipv6Hdr = unsafe {
-            mem::transmute::<[u8; Ipv6Hdr::LEN], _>(expected_header_bytes.try_into().unwrap())
-        };
-        assert_eq!(
-            ipv6_header.src_addr(),
-            Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)
-        );
-        assert_eq!(
-            ipv6_header.dst_addr(),
-            Ipv6Addr::new(2, 0, 0, 0, 0, 0, 0, 1)
-        );
+        hdr.set_tos(0b110011, 0b10); // DSCP 51, ECN 2
+        assert_eq!(hdr.dscp(), 0b110011);
+        assert_eq!(hdr.ecn(), 0b10);
+    }
 
-        let mut header_bytes = [0u8; 40];
-        let ipv6_header: *mut Ipv6Hdr = &mut header_bytes as *mut _ as *mut _;
-        unsafe {
-            (*ipv6_header).set_src_addr(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0));
-            (*ipv6_header).set_dst_addr(Ipv6Addr::new(2, 0, 0, 0, 0, 0, 0, 1));
+    #[test]
+    fn test_ipv4_tot_len() {
+        let mut hdr = default_ipv4_hdr();
+        hdr.set_tot_len(1500);
+        assert_eq!(hdr.tot_len(), 1500);
+    }
+
+    #[test]
+    fn test_ipv4_id() {
+        let mut hdr = default_ipv4_hdr();
+        hdr.set_id(0xABCD);
+        assert_eq!(hdr.id(), 0xABCD);
+    }
+
+    #[test]
+    fn test_ipv4_frags() {
+        let mut hdr = default_ipv4_hdr();
+        // Flags: 0b010 (DF set), Offset: 100
+        hdr.set_frags(0b010, 100);
+        assert_eq!(hdr.frag_flags(), 0b010);
+        assert_eq!(hdr.frag_offset(), 100);
+
+        // Flags: 0b001 (MF set), Offset: 0x1ABC
+        hdr.set_frags(0b001, 0x1ABC);
+        assert_eq!(hdr.frag_flags(), 0b001);
+        assert_eq!(hdr.frag_offset(), 0x1ABC);
+    }
+
+    #[test]
+    fn test_ipv4_checksum() {
+        let mut hdr = default_ipv4_hdr();
+        hdr.set_checksum(0x1234);
+        assert_eq!(hdr.checksum(), 0x1234);
+    }
+
+    #[test]
+    fn test_ipv4_addrs() {
+        let mut hdr = default_ipv4_hdr();
+        let src = Ipv4Addr::new(192, 168, 1, 1);
+        let dst = Ipv4Addr::new(10, 0, 0, 1);
+        hdr.set_src_addr(src);
+        hdr.set_dst_addr(dst);
+        assert_eq!(hdr.src_addr(), src);
+        assert_eq!(hdr.dst_addr(), dst);
+    }
+
+    #[test]
+    fn test_ipv6_version() {
+        let mut hdr = default_ipv6_hdr();
+        hdr.set_version(6);
+        assert_eq!(hdr.version(), 6);
+    }
+
+    #[test]
+    fn test_ipv6_dscp_ecn() {
+        let mut hdr = default_ipv6_hdr();
+        // DSCP: 0b001010 (10), ECN: 0b01 (1)
+        hdr.set_dscp_ecn(0b001010, 0b01);
+        assert_eq!(hdr.dscp(), 0b001010);
+        assert_eq!(hdr.ecn(), 0b01);
+
+        // DSCP: 0b110011 (51), ECN: 0b10 (2)
+        // Ensure other parts of vcf[0] and vcf[1] are not clobbered unnecessarily
+        // by setting version and flow label first
+        hdr.set_version(6);
+        hdr.set_flow_label(0xFFFFF); // Max flow label
+        hdr.set_dscp_ecn(0b110011, 0b10);
+        assert_eq!(hdr.version(), 6); // Check version is maintained
+        assert_eq!(hdr.dscp(), 0b110011);
+        assert_eq!(hdr.ecn(), 0b10);
+        assert_eq!(hdr.flow_label(), 0xFFFFF); // Check flow label is maintained
+    }
+
+    #[test]
+    fn test_ipv6_flow_label() {
+        let mut hdr = default_ipv6_hdr();
+        hdr.set_flow_label(0x12345); // 20-bit value
+        assert_eq!(hdr.flow_label(), 0x12345);
+
+        // Ensure other parts of vcf[1] are not clobbered
+        // by setting dscp and ecn first
+        hdr.set_version(6);
+        hdr.set_dscp_ecn(0b001010, 0b01);
+        hdr.set_flow_label(0xABCDE);
+        assert_eq!(hdr.version(), 6);
+        assert_eq!(hdr.dscp(), 0b001010);
+        assert_eq!(hdr.ecn(), 0b01);
+        assert_eq!(hdr.flow_label(), 0xABCDE);
+    }
+
+    #[test]
+    fn test_ipv6_set_vcf() {
+        let mut hdr = default_ipv6_hdr();
+        let version = 6;
+        let dscp = 0b001111; // 15
+        let ecn = 0b11; // 3
+        let flow_label = 0xFEDCB; // 20-bit
+
+        hdr.set_vcf(version, dscp, ecn, flow_label);
+        assert_eq!(hdr.version(), version);
+        assert_eq!(hdr.dscp(), dscp);
+        assert_eq!(hdr.ecn(), ecn);
+        assert_eq!(hdr.flow_label(), flow_label);
+    }
+
+    #[test]
+    fn test_ipv6_payload_len() {
+        let mut hdr = default_ipv6_hdr();
+        hdr.set_payload_len(3000);
+        assert_eq!(hdr.payload_len(), 3000);
+    }
+
+    #[test]
+    fn test_ipv6_addrs() {
+        let mut hdr = default_ipv6_hdr();
+        let src = Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 0x0001);
+        let dst = Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 0x0002);
+        hdr.set_src_addr(src);
+        hdr.set_dst_addr(dst);
+        assert_eq!(hdr.src_addr(), src);
+        assert_eq!(hdr.dst_addr(), dst);
+    }
+
+    #[test]
+    fn test_ip_proto_variants() {
+        assert_eq!(IpProto::Tcp as u8, 6);
+        assert_eq!(IpProto::Udp as u8, 17);
+        assert_eq!(IpProto::Icmp as u8, 1);
+        assert_eq!(IpProto::Ipv6Icmp as u8, 58);
+    }
+
+    #[test]
+    fn test_iphdr_enum() {
+        let ipv4_hdr = default_ipv4_hdr();
+        let ip_hdr_v4 = IpHdr::V4(ipv4_hdr);
+        if let IpHdr::V4(hdr) = ip_hdr_v4 {
+            assert_eq!(hdr.vihl, ipv4_hdr.vihl); // Check a field to ensure it's the same
+        } else {
+            panic!("Expected IpHdr::V4");
         }
 
-        let ipv6_header: Ipv6Hdr =
-            unsafe { mem::transmute::<[u8; Ipv6Hdr::LEN], _>(header_bytes.try_into().unwrap()) };
-        assert_eq!(
-            ipv6_header.src_addr(),
-            Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)
-        );
-        assert_eq!(
-            ipv6_header.dst_addr(),
-            Ipv6Addr::new(2, 0, 0, 0, 0, 0, 0, 1)
-        );
-
-        assert_eq!(expected_header_bytes, header_bytes);
+        let ipv6_hdr = default_ipv6_hdr();
+        let ip_hdr_v6 = IpHdr::V6(ipv6_hdr);
+        if let IpHdr::V6(hdr) = ip_hdr_v6 {
+            assert_eq!(hdr.vcf, ipv6_hdr.vcf); // Check a field
+        } else {
+            panic!("Expected IpHdr::V6");
+        }
     }
 }
