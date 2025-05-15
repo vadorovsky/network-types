@@ -14,14 +14,13 @@ pub enum IpHdr {
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Ipv4Hdr {
-    pub _bitfield_align_1: [u8; 0],
-    pub _bitfield_1: BitfieldUnit<[u8; 1usize]>,
+    pub vihl: u8,
     pub tos: u8,
     pub tot_len: [u8; 2],
     pub id: [u8; 2],
-    pub frag_off: [u8; 2],
+    pub frags: [u8; 2],
     pub ttl: u8,
-    pub proto: IpProto,
+    pub proto: u8,
     pub check: [u8; 2],
     pub src_addr: [u8; 4],
     pub dst_addr: [u8; 4],
@@ -30,88 +29,118 @@ pub struct Ipv4Hdr {
 impl Ipv4Hdr {
     pub const LEN: usize = mem::size_of::<Ipv4Hdr>();
 
-    #[inline]
-    pub fn ihl(&self) -> u8 {
-        unsafe { mem::transmute(self._bitfield_1.get(0usize, 4u8) as u8) }
-    }
-
-    #[inline]
-    pub fn set_ihl(&mut self, val: u8) {
-        unsafe {
-            let val: u8 = mem::transmute(val);
-            self._bitfield_1.set(0usize, 4u8, val as u64)
-        }
-    }
-
+    /// Returns the IP version field (should be 4).
     #[inline]
     pub fn version(&self) -> u8 {
-        unsafe { mem::transmute(self._bitfield_1.get(4usize, 4u8) as u8) }
+        (self.vihl >> 4) & 0xF
     }
 
+    /// Returns the IP header length in bytes.
     #[inline]
-    pub fn set_version(&mut self, val: u8) {
-        unsafe {
-            let val: u8 = mem::transmute(val);
-            self._bitfield_1.set(4usize, 4u8, val as u64)
-        }
+    pub fn ihl(&self) -> u8 {
+        (self.vihl & 0xF) * 4
     }
 
+    /// Sets both the version and IHL fields.
     #[inline]
-    pub fn new_bitfield_1(ihl: u8, version: u8) -> BitfieldUnit<[u8; 1usize]> {
-        let mut bitfield_unit: BitfieldUnit<[u8; 1usize]> = Default::default();
-        bitfield_unit.set(0usize, 4u8, {
-            let ihl: u8 = unsafe { mem::transmute(ihl) };
-            ihl as u64
-        });
-        bitfield_unit.set(4usize, 4u8, {
-            let version: u8 = unsafe { mem::transmute(version) };
-            version as u64
-        });
-        bitfield_unit
+    pub fn set_vihl(&mut self, version: u8, ihl_in_bytes: u8) {
+        let ihl_in_words = ihl_in_bytes / 4;
+        self.vihl = ((version & 0xF) << 4) | (ihl_in_words & 0xF);
     }
-}
 
-impl Ipv4Hdr {
-    pub fn total_len(&self) -> u16 {
+    /// Returns the DSCP (Differentiated Services Code Point) field.
+    #[inline]
+    pub fn dscp(&self) -> u8 {
+        (self.tos >> 2) & 0x3F
+    }
+
+    /// Returns the ECN (Explicit Congestion Notification) field.
+    #[inline]
+    pub fn ecn(&self) -> u8 {
+        self.tos & 0x3
+    }
+
+    /// Sets the TOS field with separate DSCP and ECN values.
+    #[inline]
+    pub fn set_tos(&mut self, dscp: u8, ecn: u8) {
+        self.tos = ((dscp & 0x3F) << 2) | (ecn & 0x3);
+    }
+
+    /// Returns the total length of the IP packet.
+    #[inline]
+    pub fn tot_len(&self) -> u16 {
         u16::from_be_bytes(self.tot_len)
     }
 
-    pub fn set_total_len(&mut self, len: u16) {
+    /// Sets the total length of the IP packet.
+    #[inline]
+    pub fn set_tot_len(&mut self, len: u16) {
         self.tot_len = len.to_be_bytes();
     }
 
+    /// Returns the identification field.
+    #[inline]
     pub fn id(&self) -> u16 {
         u16::from_be_bytes(self.id)
     }
 
+    /// Sets the identification field.
+    #[inline]
     pub fn set_id(&mut self, id: u16) {
         self.id = id.to_be_bytes();
     }
 
+    /// Returns the fragmentation flags (3 bits).
+    #[inline]
+    pub fn frag_flags(&self) -> u8 {
+        (u16::from_be_bytes(self.frags) >> 13) as u8
+    }
+
+    /// Returns the fragmentation offset (13 bits).
+    #[inline]
+    pub fn frag_offset(&self) -> u16 {
+        u16::from_be_bytes(self.frags) & 0x1FFF
+    }
+
+    /// Sets both the fragmentation flags and offset.
+    #[inline]
+    pub fn set_frags(&mut self, flags: u8, offset: u16) {
+        let value = ((flags as u16 & 0x7) << 13) | (offset & 0x1FFF);
+        self.frags = value.to_be_bytes();
+    }
+
+    /// Returns the checksum field.
+    #[inline]
     pub fn checksum(&self) -> u16 {
         u16::from_be_bytes(self.check)
     }
 
+    /// Sets the checksum field.
+    #[inline]
     pub fn set_checksum(&mut self, checksum: u16) {
         self.check = checksum.to_be_bytes();
     }
 
-    /// Returns the source address field. As network endianness is big endian, we convert it to host endianness.
+    /// Returns the source address field.
+    #[inline]
     pub fn src_addr(&self) -> core::net::Ipv4Addr {
         core::net::Ipv4Addr::from(self.src_addr)
     }
 
-    /// Returns the destination address field. As network endianness is big endian, we convert it to host endianness.
+    /// Returns the destination address field.
+    #[inline]
     pub fn dst_addr(&self) -> core::net::Ipv4Addr {
         core::net::Ipv4Addr::from(self.dst_addr)
     }
 
-    /// Sets the source address field. As network endianness is big endian, we convert it from host endianness.
+    /// Sets the source address field.
+    #[inline]
     pub fn set_src_addr(&mut self, src: core::net::Ipv4Addr) {
         self.src_addr = src.octets();
     }
 
-    /// Sets the destination address field. As network endianness is big endian, we convert it from host endianness.
+    /// Sets the destination address field.
+    #[inline]
     pub fn set_dst_addr(&mut self, dst: core::net::Ipv4Addr) {
         self.dst_addr = dst.octets();
     }
