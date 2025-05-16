@@ -8,18 +8,42 @@ use core::ptr;
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct IgmpV2Hdr {
     /// The IGMP message type
-    pub igmp_type: u8,
+    pub p_type: u8,
     /// Maximum time allowed before sending a responding report, in 1/10 seconds
-    pub max_response_time: u8,
+    pub max_res_time: u8,
     /// The 16-bit checksum used to detect data corruption
-    pub checksum: u16,
+    pub check: [u8; 2],
     /// The multicast group address this message refers to
-    pub group_addr: u32,
+    pub group_addr: [u8; 4],
 }
 
 impl IgmpV2Hdr {
     /// The total size in bytes of an IGMPv2 header
     pub const LEN: usize = mem::size_of::<IgmpV2Hdr>();
+
+    /// Returns the checksum field.
+    #[inline]
+    pub fn check(&self) -> u16 {
+        u16::from_be_bytes(self.check)
+    }
+
+    /// Sets the checksum field
+    #[inline]
+    pub fn set_check(&mut self, checksum: u16) {
+        self.check = checksum.to_be_bytes();
+    }
+
+    /// Returns the group_addr field
+    #[inline]
+    pub fn group_addr(&self) -> u32 {
+        u32::from_be_bytes(self.group_addr)
+    }
+
+    /// Sets the group_addr field
+    #[inline]
+    pub fn set_group_addr(&mut self, group_addr: u32) {
+        self.group_addr = group_addr.to_be_bytes();
+    }
 }
 
 /// Represents an IGMPv3 header according to RFC 3376.
@@ -28,13 +52,13 @@ impl IgmpV2Hdr {
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct IgmpV3Hdr {
     /// The IGMP message type
-    pub igmp_type: u8,
+    pub p_type: u8,
     /// Maximum time allowed before sending a response in tenths of a second
-    pub max_response_time: u8,
+    pub max_res_time: u8,
     /// The 16-bit checksum used for error detection
-    pub checksum: u16,
+    pub check: [u8; 2],
     /// The multicast group address for this message
-    pub group_addr: u32,
+    pub group_addr: [u8; 4],
     /// Combined field containing:
     /// - 4-bit Reserved field (high nibble)
     /// - 1-bit S flag for Suppress Router-side Processing
@@ -43,7 +67,7 @@ pub struct IgmpV3Hdr {
     /// Querier's Query Interval Code
     pub qqic: u8,
     /// Number of source addresses that follow this header
-    pub num_sources: u16,
+    pub num_srcs: [u8; 2],
 }
 
 #[derive(Debug)]
@@ -56,24 +80,104 @@ pub enum IgmpV3Error {
 impl IgmpV3Hdr {
     pub const LEN: usize = mem::size_of::<IgmpV3Hdr>();
 
+    // --- Bitfield Constants ---
+    const RSRV_SHIFT: u8 = 4;
+    const RSRV_MASK_IN_BYTE: u8 = 0b11110000; // Masks Reserved field bits in the rsrv_supp_qrv byte
+    const RSRV_VALUE_MASK: u8 = 0x0F; // Masks a 4-bit value
+
+    const SUPP_SHIFT: u8 = 3;
+    const SUPP_MASK_IN_BYTE: u8 = 0b00001000; // Masks S bit in the rsrv_supp_qrv byte
+    const SUPP_VALUE_MASK: u8 = 0x01; // Masks a 1-bit value
+
+    const QRV_MASK_IN_BYTE: u8 = 0b00000111; // Masks QRV bits in the rsrv_supp_qrv byte
+    const QRV_VALUE_MASK: u8 = 0x07; // Masks a 3-bit value
+
     /// Extracts the 4-bit value for Reserved
     #[inline]
     pub fn rsrv(&self) -> u8 {
-        self.rsrv_supp_qrv >> 4
+        (self.rsrv_supp_qrv & Self::RSRV_MASK_IN_BYTE) >> Self::RSRV_SHIFT
+    }
+
+    /// Sets the 4-bit Reserved (Resv) value.
+    /// `value` should be a 4-bit number (0-15). Values outside this range will be masked.
+    #[inline]
+    pub fn set_rsrv(&mut self, rsrv: u8) {
+        let current_val = self.rsrv_supp_qrv;
+        // Apply mask to ensure only relevant bits are set, left shift into correct position
+        let new_val = (rsrv & Self::RSRV_VALUE_MASK) << Self::RSRV_SHIFT;
+        // Clear old values from current_val, OR to insert new values
+        self.rsrv_supp_qrv = (current_val & !Self::RSRV_MASK_IN_BYTE) | new_val;
     }
 
     /// Extracts the 1-bit value for Suppress Router-side Processing
     #[inline]
     pub fn supp(&self) -> u8 {
-        //Mask last bit after shifting to ensure 1 bit value back
-        (self.rsrv_supp_qrv << 3) & 0x01
+        (self.rsrv_supp_qrv & Self::SUPP_MASK_IN_BYTE) >> Self::SUPP_SHIFT
+    }
+
+    /// Sets the 1-bit S flag (Suppress Router-side Processing).
+    /// `value` should be 0 or 1. Values outside this range will be masked.
+    #[inline]
+    pub fn set_supp(&mut self, supp: u8) {
+        let current_val = self.rsrv_supp_qrv;
+        // Apply mask to ensure only relevant bit is set, left shift into correct position
+        let new_val = (supp & Self::SUPP_VALUE_MASK) << Self::SUPP_SHIFT;
+        // Clear old value from current_val, OR to insert new value
+        self.rsrv_supp_qrv = (current_val & !Self::SUPP_MASK_IN_BYTE) | new_val;
     }
 
     /// Extracts the 3-bit value for QRV
     #[inline]
     pub fn qrv(&self) -> u8 {
         //Mask last three bits to ensure value
-        self.rsrv_supp_qrv & 0x07
+        self.rsrv_supp_qrv & Self::QRV_MASK_IN_BYTE
+    }
+
+    /// Sets the 3-bit QRV (Querier's Robustness Variable) value.
+    /// `value` should be a 3-bit number (0-7). Values outside this range will be masked.
+    #[inline]
+    pub fn set_qrv(&mut self, qrv: u8) {
+        let current_val = self.rsrv_supp_qrv;
+        // Apply mask to ensure only relevant bits are set, no shift needed as they are LSB
+        let new_val = qrv & !Self::QRV_VALUE_MASK;
+        // Clear old values from current_val, OR to insert new values
+        self.rsrv_supp_qrv = (current_val & !Self::QRV_MASK_IN_BYTE) | new_val;
+    }
+
+    /// Returns the checksum field.
+    #[inline]
+    pub fn check(&self) -> u16 {
+        u16::from_be_bytes(self.check)
+    }
+
+    /// Sets the checksum field
+    #[inline]
+    pub fn set_check(&mut self, checksum: u16) {
+        self.check = checksum.to_be_bytes();
+    }
+
+    /// Returns the group_addr field
+    #[inline]
+    pub fn group_addr(&self) -> u32 {
+        u32::from_be_bytes(self.group_addr)
+    }
+
+    /// Sets the group_addr field
+    #[inline]
+    pub fn set_group_addr(&mut self, group_addr: u32) {
+        self.group_addr = group_addr.to_be_bytes();
+    }
+
+    /// Returns the num_srs field.
+    #[inline]
+    pub fn num_srs(&self) -> u16 {
+        u16::from_be_bytes(self.num_srcs)
+    }
+
+    /// Sets the num_srs field
+    #[inline]
+    pub fn set_num_srs(&mut self, num_srs: u16) {
+        self.num_srcs = num_srs.to_be_bytes();
     }
 
     /// Reads IGMPv3 source addresses from packet data into a caller-provided slice.
@@ -205,9 +309,9 @@ impl IgmpV3Hdr {
 
         //Extract expected number of sources to read from the header, convert from big endian to a number
         //Get pointer to location first
-        let num_sources_ptr = ptr::addr_of!((*header_ptr).num_sources);
+        let num_sources_ptr = ptr::addr_of!((*header_ptr).num_srcs);
         let num_sources_be = unsafe { ptr::read_unaligned(num_sources_ptr) };
-        let num_sources_expected = u16::from_be(num_sources_be) as usize;
+        let num_sources_expected = u16::from_be_bytes(num_sources_be) as usize;
 
         //Calculate starting location of Source Addresses, directly after IGMPv3 header struct
         let sources_start_ptr = (header_ptr as *const u8).add(igmpv3_size) as *const u32;
@@ -251,27 +355,30 @@ mod tests {
     fn test_igmpv3_hdr_fields_deserialization() {
         let header_bytes: [u8; IGMPV3_HDR_LEN] = [
             0x22, // igmp_type
-            0x50, // max_response_time
-            0xFE, 0xDC, // checksum (BE)
+            0x50, // max_res_time
+            0xFE, 0xDC, // check (BE)
             0xE0, 0x00, 0x01, 0x02, // group_addr (BE: 224.0.1.2)
             0x0A, // rsrv_supp_qrv
             0x7D, // qqic
-            0x00, 0x03, // num_sources (BE: 3)
+            0x00, 0x03, // num_srcs (BE: 3)
         ];
 
         let header_ptr = header_bytes.as_ptr() as *const IgmpV3Hdr;
         let header: IgmpV3Hdr = unsafe { ptr::read_unaligned(header_ptr) };
 
-        assert_eq!(header.igmp_type, 0x22);
-        assert_eq!(header.max_response_time, 0x50);
-        assert_eq!(u16::from_be(header.checksum), 0xFEDC);
+        assert_eq!(header.p_type, 0x22);
+        assert_eq!(header.max_res_time, 0x50);
+        assert_eq!(u16::from_be_bytes(header.check), 0xFEDC);
 
         let expected_group_addr_val_be: u32 = Ipv4Addr::new(224, 0, 1, 2).into();
-        assert_eq!(u32::from_be(header.group_addr), expected_group_addr_val_be);
+        assert_eq!(
+            u32::from_be_bytes(header.group_addr),
+            expected_group_addr_val_be
+        );
 
         assert_eq!(header.rsrv_supp_qrv, 0x0A);
         assert_eq!(header.qqic, 0x7D);
-        assert_eq!(u16::from_be(header.num_sources), 3);
+        assert_eq!(u16::from_be_bytes(header.num_srcs), 3);
     }
 
     #[test]
@@ -280,7 +387,7 @@ mod tests {
 
         let header_fixed_part: [u8; IGMPV3_HDR_LEN] = [
             0x11, 0x00, 0xAA, 0xBB, 0x01, 0x02, 0x03, 0x04, 0x00, 0x00, 0x00,
-            0x02, // num_sources = 2 (BE)
+            0x02, // num_srcs = 2 (BE)
         ];
         let source1_ip_bytes: [u8; 4] = [0x0A, 0x0B, 0x0C, 0x0D]; // 10.11.12.13 BE
         let source2_ip_bytes: [u8; 4] = [0xC0, 0xA8, 0x00, 0x01]; // 192.168.0.1 BE
@@ -320,7 +427,7 @@ mod tests {
         let mut packet_buffer = [0u8; MAX_TEST_PACKET_BUFFER_SIZE];
         let header_fixed_part: [u8; IGMPV3_HDR_LEN] = [
             0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, // num_sources = 0 (BE)
+            0x00, // num_srcs = 0 (BE)
         ];
         packet_buffer[0..IGMPV3_HDR_LEN].copy_from_slice(&header_fixed_part);
         let packet_data_len = IGMPV3_HDR_LEN;
@@ -347,7 +454,7 @@ mod tests {
         let mut packet_buffer = [0u8; MAX_TEST_PACKET_BUFFER_SIZE];
         let header_fixed_part: [u8; IGMPV3_HDR_LEN] = [
             0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x03, // num_sources = 3 (BE)
+            0x03, // num_srcs = 3 (BE)
         ];
         let source1_bytes = [1u8, 0, 0, 1]; // BE
         let source2_bytes = [1u8, 0, 0, 2]; // BE
@@ -410,7 +517,7 @@ mod tests {
         let mut packet_buffer = [0u8; MAX_TEST_PACKET_BUFFER_SIZE];
         let header_fixed_part: [u8; IGMPV3_HDR_LEN] = [
             0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x03, // num_sources = 3 (BE)
+            0x03, // num_srcs = 3 (BE)
         ];
         let source1_bytes = [1u8, 0, 0, 1]; // BE
 
@@ -443,7 +550,7 @@ mod tests {
         let mut packet_buffer = [0u8; MAX_TEST_PACKET_BUFFER_SIZE];
         let header_fixed_part: [u8; IGMPV3_HDR_LEN] = [
             0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x01, // num_sources = 1 (BE)
+            0x01, // num_srcs = 1 (BE)
         ];
         packet_buffer[0..IGMPV3_HDR_LEN].copy_from_slice(&header_fixed_part);
         let packet_data_len = IGMPV3_HDR_LEN; // Packet ends exactly after header
