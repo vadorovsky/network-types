@@ -92,83 +92,102 @@ impl IgmpV3Hdr {
     /// # Returns
     /// - `Ok(count)`: The number of source IPs successfully read and written.
     /// - `Err(IgmpV3Error)`: If an error occurs (e.g., out-of-bounds access).
+    ///
     ///  --- Conceptual TC eBPF Program Snippet ---
-    /// // Placeholder for max sources buffer size
-    /// const MAX_PROGRAM_IGMP_SOURCES: usize = 8; // Or your desired limit
+    /// // Max sources this eBPF program is prepared to handle on its stack for this operation
+    /// const MAX_PROGRAM_IGMP_SOURCES: usize = 8;
     ///
-    /// // Placeholders for eBPF context and action types
-    /// struct SomeEbpfContext { /* ... fields to get packet pointers ... */ }
-    /// impl SomeEbpfContext {
-    ///     fn data_start(&self) -> *const u8 { /* ... implementation ... */ core::ptr::null() }
-    ///     fn data_end(&self) -> *const u8 { /* ... implementation ... */ core::ptr::null() }
-    ///     // In a real scenario, these would provide actual packet data pointers
-    /// }
+    /// // Define the eBPF map, matching the userspace example's HashMap<_, u32, u32>
+    /// // Here, we assume the key is an IPv4 address (u32) and value is a placeholder u32.
+    /// #[map]
+    /// static mut BLOCKLIST: HashMap<u32, u32> = HashMap::with_max_entries(1024, 0);
     ///
-    /// type TcActionResult = i32; // e.g., TC_ACT_OK or TC_ACT_SHOT
-    /// const TC_OK_ACTION: TcActionResult = 0; // Replace with actual values
-    /// const TC_SHOT_ACTION: TcActionResult = 1;
+    /// // Logging macro (using aya_log_ebpf::info or printk for simplicity)
+    /// #[cfg(feature = "logging")] // Assuming a feature flag for logging
+    /// use aya_log_ebpf::{info, warn}; // Using aya-log-ebpf for structured logging
     ///
-    /// // Logging macro (same as before)
-    /// #[cfg(feature = "log_printk")]
-    /// use aya_bpf::macros::printk;
-    /// #[cfg(feature = "log_printk")]
-    /// macro_rules! log {
-    ///     ($($arg:tt)*) => {{
-    ///         printk!($($arg)*);
-    ///     }}
-    /// }
-    /// #[cfg(not(feature = "log_printk"))]
-    /// macro_rules! log {
-    ///     ($($arg:tt)*) => {{
-    ///         let _ = format_args!($($arg)*);
-    ///     }}
-    /// }
-    /// fn conceptual_tc_igmp_processor(ctx: &SomeEbpfContext) -> TcActionResult {
-    ///     // Assume these are obtained after parsing preceding headers (Ethernet, IP)
-    ///     // and performing necessary bounds checks for those headers.
-    ///     let packet_data_end_ptr = ctx.data_end();
+    /// // Fallback for no logging feature
+    /// #[cfg(not(feature = "logging"))]
+    /// macro_rules! info { ($($arg:tt)*) => {{ let _ = format_args!($($arg)*); }} }
+    /// #[cfg(not(feature = "logging"))]
+    /// macro_rules! warn { ($($arg:tt)*) => {{ let _ = format_args!($($arg)*); }} }
     ///
-    ///     // Validate IGMP type is V3 before parsing
+    /// // This function would be the entry point for your TC egress classifier program.
+    /// // The userspace code would load and attach this program named "tc_egress".
+    /// #[classifier]
+    /// pub fn tc_egress(ctx: TcContext) -> i32 {
+    ///     // --- Conceptual Part 1: Assume IGMP Header Location is Determined ---
+    ///     // In a complete program, this section would involve parsing Ethernet and IPv4
+    ///     // headers, performing bounds checks, and validating packet types.
+    ///     // For this conceptual example, we assume `igmp_header_ptr` and `packet_data_end_ptr`
+    ///     // have been safely obtained.
+    ///
+    ///     // Placeholder: In a real program, derive these from `ctx` after parsing prior headers.
+    ///     // Example: let packet_data_end_ptr = ctx.data_end() as *const u8;
+    ///     // Example: let igmp_header_ptr = derive_igmp_header_ptr_from_ctx(&ctx);
+    ///     let packet_data_end_ptr: *const u8 = ctx.data_end() as *const u8; // Example: how it might be obtained
     ///     let igmp_header_ptr: *const IgmpV3Hdr = {
-    ///         // Conceptual: obtain pointer to IGMP header after Eth/IP parsing
-    ///         // let packet_data_start_ptr = ctx.data_start();
-    ///         // let offset_to_igmp = calculate_offset_to_igmp_payload(packet_data_start_ptr, packet_data_end_ptr);
-    ///         // if offset_to_igmp is invalid, return TC_OK_ACTION or TC_SHOT_ACTION
-    ///         // (packet_data_start_ptr as *const u8).add(offset_to_igmp) as *const IgmpV3Hdr
-    ///         core::ptr::null() // Placeholder: replace with actual pointer derivation
+    ///         // Simplified: If this were a real function, you'd have complex parsing here.
+    ///         // For the sake of focusing on the IgmpV3Hdr helper call, let's assume
+    ///         // this part of the code is only reached if it *is* an IGMP packet
+    ///         // and igmp_header_ptr is correctly set after prior parsing.
+    ///         // For conceptual purposes, we'll simulate it being at a fixed offset if it exists.
+    ///         let presumed_offset_to_igmp = 14 + 20; // Simplified Eth + IPv4_min offset
+    ///         let start_ptr = ctx.data_start() as *const u8;
+    ///         if unsafe { start_ptr.add(presumed_offset_to_igmp) } < packet_data_end_ptr {
+    ///              unsafe { start_ptr.add(presumed_offset_to_igmp) as *const IgmpV3Hdr }
+    ///         } else {
+    ///             ptr::null() // Packet too short even for this simplified offset
+    ///         }
     ///     };
     ///
-    ///     // If igmp_header_ptr could not be safely determined
     ///     if igmp_header_ptr.is_null() {
-    ///         log!("TC: Could not locate IGMP header.");
-    ///         return TC_OK_ACTION; // Or appropriate action
+    ///         // This means either it wasn't an IGMP packet based on prior (omitted) parsing,
+    ///         // or the packet was too short.
+    ///         return TC_ACT_OK; // Pass non-IGMP or too-short packets
     ///     }
     ///
-    ///     let mut my_igmp_sources_buffer: [u32; MAX_PROGRAM_IGMP_SOURCES] = [0; MAX_PROGRAM_IGMP_SOURCES];
+    ///     // --- Conceptual Part 2: Using the IgmpV3Hdr Helper ---
+    ///     let mut sources_buffer: [u32; MAX_PROGRAM_IGMP_SOURCES] = [0; MAX_PROGRAM_IGMP_SOURCES];
     ///
     ///     match unsafe {
     ///         IgmpV3Hdr::read_source_addresses_from_packet(
     ///             igmp_header_ptr,
     ///             packet_data_end_ptr,
-    ///             &mut my_igmp_sources_buffer,
+    ///             &mut sources_buffer,
     ///         )
     ///     } {
     ///         Ok(count_read) => {
     ///             if count_read > 0 {
-    ///                 log!("TC: Conceptually read {} IGMP source(s). First: 0x{:08X}",
+    ///                 info!(&ctx, "TC Egress: Read {} IGMPv3 source(s). First: {:i}", // Use {:i} for IP
     ///                     count_read,
-    ///                     my_igmp_sources_buffer[0]
+    ///                     sources_buffer[0] // sources_buffer[0] is u32, network byte order.
+    ///                                       // For logging as IP, it might need from_be() if logger expects host order.
+    ///                                       // aya_log_ebpf's {:i} handles u32 as IP.
     ///                 );
-    ///                 // Process the `count_read` sources in `my_igmp_sources_buffer`.
+    ///
+    ///                 // Process the source addresses, e.g., check against a blocklist
+    ///                 for i in 0..count_read {
+    ///                     let source_ip_net_order = sources_buffer[i]; // This is already network byte order (Big Endian)
+    ///                     // The BLOCKLIST map stores keys also in network byte order if inserted that way.
+    ///                     // The userspace example inserts Ipv4Addr::new(1,1,1,1).into(), which is u32 in BE.
+    ///                     match unsafe { BLOCKLIST.get(&source_ip_net_order) } {
+    ///                         Some(_) => {
+    ///                             info!(&ctx, "TC Egress: IGMP Source IP {:i} is in BLOCKLIST. Dropping.", source_ip_net_order);
+    ///                             return TC_ACT_SHOT; // Drop packet
+    ///                         }
+    ///                         None => {
+    ///                             // Source IP not in blocklist, continue processing or pass
+    ///                         }
+    ///                     }
+    ///                 }
     ///             }
-    ///             // Successfully processed or no sources to process.
-    ///             // Decide TC action based on policy.
-    ///             return TC_OK_ACTION;
+    ///             // No sources to block, or all sources checked and okay.
+    ///             TC_ACT_OK // Pass the packet
     ///         }
     ///         Err(IgmpV3Error::OutOfBounds) => {
-    ///             log!("TC: Error reading IGMP sources (OutOfBounds).");
-    ///             // Policy decision: Drop (TC_SHOT) or allow (TC_OK).
-    ///             return TC_SHOT_ACTION; // Example: drop on error
+    ///             warn!(&ctx, "TC Egress: Error reading IGMPv3 sources (OutOfBounds).");
+    ///             TC_ACT_SHOT // Drop malformed/suspicious packet
     ///         }
     ///     }
     /// }
@@ -215,5 +234,235 @@ impl IgmpV3Hdr {
         }
 
         Ok(num_to_copy)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*; // Imports IgmpV3Hdr, IgmpV3Error (assuming it's defined in parent)
+    use core::net::Ipv4Addr;
+    use core::ptr;
+
+    const IGMPV3_HDR_LEN: usize = core::mem::size_of::<IgmpV3Hdr>();
+    // Define a common buffer size for packet data in tests, ensure it's large enough.
+    const MAX_TEST_PACKET_BUFFER_SIZE: usize = 64;
+
+    #[test]
+    fn test_igmpv3_hdr_fields_deserialization() {
+        let header_bytes: [u8; IGMPV3_HDR_LEN] = [
+            0x22, // igmp_type
+            0x50, // max_response_time
+            0xFE, 0xDC, // checksum (BE)
+            0xE0, 0x00, 0x01, 0x02, // group_addr (BE: 224.0.1.2)
+            0x0A, // rsrv_supp_qrv
+            0x7D, // qqic
+            0x00, 0x03, // num_sources (BE: 3)
+        ];
+
+        let header_ptr = header_bytes.as_ptr() as *const IgmpV3Hdr;
+        let header: IgmpV3Hdr = unsafe { ptr::read_unaligned(header_ptr) };
+
+        assert_eq!(header.igmp_type, 0x22);
+        assert_eq!(header.max_response_time, 0x50);
+        assert_eq!(u16::from_be(header.checksum), 0xFEDC);
+
+        let expected_group_addr_val_be: u32 = Ipv4Addr::new(224, 0, 1, 2).into();
+        assert_eq!(u32::from_be(header.group_addr), expected_group_addr_val_be);
+
+        assert_eq!(header.rsrv_supp_qrv, 0x0A);
+        assert_eq!(header.qqic, 0x7D);
+        assert_eq!(u16::from_be(header.num_sources), 3);
+    }
+
+    #[test]
+    fn test_read_sources_valid_two_sources() {
+        let mut packet_buffer = [0u8; MAX_TEST_PACKET_BUFFER_SIZE];
+
+        let header_fixed_part: [u8; IGMPV3_HDR_LEN] = [
+            0x11, 0x00, 0xAA, 0xBB, 0x01, 0x02, 0x03, 0x04, 0x00, 0x00, 0x00,
+            0x02, // num_sources = 2 (BE)
+        ];
+        let source1_ip_bytes: [u8; 4] = [0x0A, 0x0B, 0x0C, 0x0D]; // 10.11.12.13 BE
+        let source2_ip_bytes: [u8; 4] = [0xC0, 0xA8, 0x00, 0x01]; // 192.168.0.1 BE
+
+        packet_buffer[0..IGMPV3_HDR_LEN].copy_from_slice(&header_fixed_part);
+        let mut current_offset = IGMPV3_HDR_LEN;
+        packet_buffer[current_offset..current_offset + 4].copy_from_slice(&source1_ip_bytes);
+        current_offset += 4;
+        packet_buffer[current_offset..current_offset + 4].copy_from_slice(&source2_ip_bytes);
+        current_offset += 4;
+        let packet_data_len = current_offset; // Actual length of meaningful data
+
+        let header_ptr = packet_buffer.as_ptr() as *const IgmpV3Hdr;
+        let packet_end_ptr = unsafe { packet_buffer.as_ptr().add(packet_data_len) };
+        let mut output_sources_buffer: [u32; 2] = [0; 2];
+
+        let result = unsafe {
+            IgmpV3Hdr::read_source_addresses_from_packet(
+                header_ptr,
+                packet_end_ptr,
+                &mut output_sources_buffer,
+            )
+        };
+
+        assert!(result.is_ok(), "Expected Ok, got {:?}", result);
+        let count_read = result.unwrap();
+        assert_eq!(count_read, 2, "Should have read 2 sources");
+
+        let expected_ip1_val: u32 = Ipv4Addr::new(10, 11, 12, 13).into();
+        let expected_ip2_val: u32 = Ipv4Addr::new(192, 168, 0, 1).into();
+        assert_eq!(output_sources_buffer[0], expected_ip1_val);
+        assert_eq!(output_sources_buffer[1], expected_ip2_val);
+    }
+
+    #[test]
+    fn test_read_sources_zero_num_sources() {
+        let mut packet_buffer = [0u8; MAX_TEST_PACKET_BUFFER_SIZE];
+        let header_fixed_part: [u8; IGMPV3_HDR_LEN] = [
+            0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, // num_sources = 0 (BE)
+        ];
+        packet_buffer[0..IGMPV3_HDR_LEN].copy_from_slice(&header_fixed_part);
+        let packet_data_len = IGMPV3_HDR_LEN;
+
+        let header_ptr = packet_buffer.as_ptr() as *const IgmpV3Hdr;
+        let packet_end_ptr = unsafe { packet_buffer.as_ptr().add(packet_data_len) };
+        let mut output_buffer: [u32; 1] = [999];
+
+        let result = unsafe {
+            IgmpV3Hdr::read_source_addresses_from_packet(
+                header_ptr,
+                packet_end_ptr,
+                &mut output_buffer,
+            )
+        };
+
+        assert!(result.is_ok(), "Expected Ok, got {:?}", result);
+        assert_eq!(result.unwrap(), 0, "Should have read 0 sources");
+        assert_eq!(output_buffer[0], 999, "Output buffer should be untouched");
+    }
+
+    #[test]
+    fn test_read_sources_output_buffer_limits_copy() {
+        let mut packet_buffer = [0u8; MAX_TEST_PACKET_BUFFER_SIZE];
+        let header_fixed_part: [u8; IGMPV3_HDR_LEN] = [
+            0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x03, // num_sources = 3 (BE)
+        ];
+        let source1_bytes = [1u8, 0, 0, 1]; // BE
+        let source2_bytes = [1u8, 0, 0, 2]; // BE
+        let source3_bytes = [1u8, 0, 0, 3]; // BE
+
+        packet_buffer[0..IGMPV3_HDR_LEN].copy_from_slice(&header_fixed_part);
+        let mut current_offset = IGMPV3_HDR_LEN;
+        packet_buffer[current_offset..current_offset + 4].copy_from_slice(&source1_bytes);
+        current_offset += 4;
+        packet_buffer[current_offset..current_offset + 4].copy_from_slice(&source2_bytes);
+        current_offset += 4;
+        packet_buffer[current_offset..current_offset + 4].copy_from_slice(&source3_bytes);
+        current_offset += 4;
+        let packet_data_len = current_offset;
+
+        let header_ptr = packet_buffer.as_ptr() as *const IgmpV3Hdr;
+        let packet_end_ptr = unsafe { packet_buffer.as_ptr().add(packet_data_len) };
+        let mut output_buffer: [u32; 2] = [0; 2]; // Output buffer can only hold 2
+
+        let result = unsafe {
+            IgmpV3Hdr::read_source_addresses_from_packet(
+                header_ptr,
+                packet_end_ptr,
+                &mut output_buffer,
+            )
+        };
+
+        assert!(result.is_ok(), "Expected Ok, got {:?}", result);
+        let count_read = result.unwrap();
+        assert_eq!(count_read, 2, "Should have copied only 2 sources");
+        assert_eq!(output_buffer[0], u32::from_be_bytes(source1_bytes));
+        assert_eq!(output_buffer[1], u32::from_be_bytes(source2_bytes));
+    }
+
+    #[test]
+    fn test_read_sources_err_packet_too_short_for_header() {
+        let packet_data: [u8; IGMPV3_HDR_LEN - 2] = [0; IGMPV3_HDR_LEN - 2]; // Too short for header
+
+        let header_ptr = packet_data.as_ptr() as *const IgmpV3Hdr;
+        let packet_end_ptr = unsafe { packet_data.as_ptr().add(packet_data.len()) };
+        let mut output_buffer: [u32; 1] = [0];
+
+        let result = unsafe {
+            IgmpV3Hdr::read_source_addresses_from_packet(
+                header_ptr,
+                packet_end_ptr,
+                &mut output_buffer,
+            )
+        };
+
+        assert!(result.is_err(), "Expected Err, got Ok: {:?}", result);
+        assert!(
+            matches!(result.unwrap_err(), IgmpV3Error::OutOfBounds),
+            "Expected OutOfBounds error"
+        );
+    }
+
+    #[test]
+    fn test_read_sources_err_packet_too_short_for_claimed_sources() {
+        let mut packet_buffer = [0u8; MAX_TEST_PACKET_BUFFER_SIZE];
+        let header_fixed_part: [u8; IGMPV3_HDR_LEN] = [
+            0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x03, // num_sources = 3 (BE)
+        ];
+        let source1_bytes = [1u8, 0, 0, 1]; // BE
+
+        packet_buffer[0..IGMPV3_HDR_LEN].copy_from_slice(&header_fixed_part);
+        let mut current_offset = IGMPV3_HDR_LEN;
+        packet_buffer[current_offset..current_offset + 4].copy_from_slice(&source1_bytes);
+        current_offset += 4;
+        let packet_data_len = current_offset; // Data for only 1 source, header claims 3
+
+        let header_ptr = packet_buffer.as_ptr() as *const IgmpV3Hdr;
+        let packet_end_ptr = unsafe { packet_buffer.as_ptr().add(packet_data_len) };
+        let mut output_buffer: [u32; 3] = [0; 3];
+
+        let result = unsafe {
+            IgmpV3Hdr::read_source_addresses_from_packet(
+                header_ptr,
+                packet_end_ptr,
+                &mut output_buffer,
+            )
+        };
+        assert!(result.is_err(), "Expected Err, got Ok: {:?}", result);
+        assert!(
+            matches!(result.unwrap_err(), IgmpV3Error::OutOfBounds),
+            "Expected OutOfBounds error"
+        );
+    }
+
+    #[test]
+    fn test_read_sources_err_no_space_for_any_sources_when_num_sources_gt_0() {
+        let mut packet_buffer = [0u8; MAX_TEST_PACKET_BUFFER_SIZE];
+        let header_fixed_part: [u8; IGMPV3_HDR_LEN] = [
+            0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x01, // num_sources = 1 (BE)
+        ];
+        packet_buffer[0..IGMPV3_HDR_LEN].copy_from_slice(&header_fixed_part);
+        let packet_data_len = IGMPV3_HDR_LEN; // Packet ends exactly after header
+
+        let header_ptr = packet_buffer.as_ptr() as *const IgmpV3Hdr;
+        let packet_end_ptr = unsafe { packet_buffer.as_ptr().add(packet_data_len) };
+        let mut output_buffer: [u32; 1] = [0];
+
+        let result = unsafe {
+            IgmpV3Hdr::read_source_addresses_from_packet(
+                header_ptr,
+                packet_end_ptr,
+                &mut output_buffer,
+            )
+        };
+        assert!(result.is_err(), "Expected Err, got Ok: {:?}", result);
+        assert!(
+            matches!(result.unwrap_err(), IgmpV3Error::OutOfBounds),
+            "Expected OutOfBounds error"
+        );
     }
 }
