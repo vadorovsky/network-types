@@ -36,7 +36,7 @@ impl Ipv4Hdr {
     /// Returns the IP header length in bytes.
     #[inline]
     pub fn ihl(&self) -> u8 {
-        (self.vihl & 0xF) * 4
+        (self.vihl & 0xF) << 2
     }
 
     /// Sets both the version and IHL fields.
