@@ -1,32 +1,48 @@
 use core::mem;
 use core::ptr;
 
-/// Internet Group Management Protocol (IGMP) .
+/// Represents an IGMPv2 header according to RFC 2236.
+/// This header format applies to all IGMPv2 messages.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct IgmpV2Hdr {
-    //
+    /// The IGMP message type
     pub igmp_type: u8,
+    /// Maximum time allowed before sending a responding report, in 1/10 seconds
     pub max_response_time: u8,
+    /// The 16-bit checksum used to detect data corruption
     pub checksum: u16,
+    /// The multicast group address this message refers to
     pub group_addr: u32,
 }
 
 impl IgmpV2Hdr {
+    /// The total size in bytes of an IGMPv2 header
     pub const LEN: usize = mem::size_of::<IgmpV2Hdr>();
 }
 
+/// Represents an IGMPv3 header according to RFC 3376.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct IgmpV3Hdr {
+    /// The IGMP message type
     pub igmp_type: u8,
+    /// Maximum time allowed before sending a response in tenths of a second
     pub max_response_time: u8,
+    /// The 16-bit checksum used for error detection
     pub checksum: u16,
+    /// The multicast group address for this message
     pub group_addr: u32,
+    /// Combined field containing:
+    /// - 4-bit Reserved field (high nibble)
+    /// - 1-bit S flag for Suppress Router-side Processing
+    /// - 3-bit QRV (Querier's Robustness Variable)  
     pub rsrv_supp_qrv: u8,
+    /// Querier's Query Interval Code
     pub qqic: u8,
+    /// Number of source addresses that follow this header
     pub num_sources: u16,
 }
 
@@ -43,7 +59,7 @@ impl IgmpV3Hdr {
     /// Extracts the 4-bit value for Reserved
     #[inline]
     pub fn rsrv(&self) -> u8 {
-        self.rsrv_supp_qrv >>4
+        self.rsrv_supp_qrv >> 4
     }
 
     /// Extracts the 1-bit value for Suppress Router-side Processing
@@ -59,7 +75,6 @@ impl IgmpV3Hdr {
         //Mask last three bits to ensure value
         self.rsrv_supp_qrv & 0x07
     }
-
 
     /// Reads IGMPv3 source addresses from packet data into a caller-provided slice.
     /// # Safety
@@ -112,7 +127,7 @@ impl IgmpV3Hdr {
     ///     // Assume these are obtained after parsing preceding headers (Ethernet, IP)
     ///     // and performing necessary bounds checks for those headers.
     ///     let packet_data_end_ptr = ctx.data_end();
-    /// 
+    ///
     ///     // Validate IGMP type is V3 before parsing
     ///     let igmp_header_ptr: *const IgmpV3Hdr = {
     ///         // Conceptual: obtain pointer to IGMP header after Eth/IP parsing
@@ -172,7 +187,7 @@ impl IgmpV3Hdr {
         //Extract expected number of sources to read from the header, convert from big endian to a number
         //Get pointer to location first
         let num_sources_ptr = ptr::addr_of!((*header_ptr).num_sources);
-        let num_sources_be = unsafe {ptr::read_unaligned(num_sources_ptr)};
+        let num_sources_be = unsafe { ptr::read_unaligned(num_sources_ptr) };
         let num_sources_expected = u16::from_be(num_sources_be) as usize;
 
         //Calculate starting location of Source Addresses, directly after IGMPv3 header struct
@@ -180,7 +195,8 @@ impl IgmpV3Hdr {
 
         //Check if expected number of sources fits within packet data range
         //saturating_mul multiplies itself by passed value
-        let expected_sources_len_bytes = num_sources_expected.saturating_mul(core::mem::size_of::<u32>());
+        let expected_sources_len_bytes =
+            num_sources_expected.saturating_mul(core::mem::size_of::<u32>());
         if (sources_start_ptr as *const u8).add(expected_sources_len_bytes) > packet_end_ptr {
             return Err(IgmpV3Error::OutOfBounds);
         }
@@ -197,12 +213,7 @@ impl IgmpV3Hdr {
             let source_ip_be = ptr::read_volatile(sources_start_ptr.add(i));
             output_sources_slice[i] = u32::from_be(source_ip_be);
         }
-        
+
         Ok(num_to_copy)
-
-    } // End of read sources helper function
-
-
+    }
 }
-
-
