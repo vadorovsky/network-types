@@ -51,4 +51,8 @@ impl MPLS {
             ((self.lbl_tc_s & Self::LABEL_LOWER_MASK_IN_BYTE) >> Self::LABEL_LOWER_SHIFT) as u32;
         high_bits | mid_bits | low_bits
     }
+
+    /// Sets the 20-bit Label value.
+    /// Input `label_value` should be a 20-bit integer (0 to 0xFFFFF).
+    /// Assumes `self` is a valid, mutable reference to an MPLS header.
 }
