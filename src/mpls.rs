@@ -60,5 +60,6 @@ impl MPLS {
         // Mask input value with 20 set bits
         let masked_label = label & 0xFFFFF;
         self.lbl_srt[0] = ((masked_label >> 12) & 0xFF) as u8;
+        self.lbl_srt[1] = ((masked_label >>4) & 0xFF) as u8;
     }
 }
