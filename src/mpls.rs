@@ -43,7 +43,7 @@ impl MPLS {
     /// # Safety
     /// Assumes `self` points to a valid MPLS header.
     #[inline]
-    pub fn get_label(&self) -> u32 {
+    pub fn label(&self) -> u32 {
         let high_bits = (self.lbl_srt[0] as u32) << 12;
         let mid_bits = (self.lbl_srt[1] as u32) << 4;
         // Mask high 4 bits belonging to label, shift right to align with high and mid bits
@@ -55,4 +55,9 @@ impl MPLS {
     /// Sets the 20-bit Label value.
     /// Input `label_value` should be a 20-bit integer (0 to 0xFFFFF).
     /// Assumes `self` is a valid, mutable reference to an MPLS header.
+    #[inline]
+    pub fn set_label(&mut self, label: u32) {
+        // Mask input value with 20 set bits
+        let masked_label = label & 0xFFFFF;
+    }
 }
