@@ -3,6 +3,7 @@
 
 pub mod arp;
 pub mod bitfield;
+mod chunk_reader;
 pub mod eth;
 pub mod icmp;
 pub mod ip;
