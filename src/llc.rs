@@ -1,12 +1,6 @@
 use core::mem;
 
-
 /// Represents Logical Link Control according to ISO/IEC 8802-2 Definition
-///   0                   1                   2                   3
-///   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-///  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-///  |     DSAP      |     SSAP      |  Control  | U | Control (opt) |
-///  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
@@ -43,7 +37,6 @@ pub enum LlcFrameType {
     U, // Unnumbered
     Invalid, // Should not happen with valid LLC frames
 }
-
 
 impl LLC {
     pub const LEN: usize = mem::size_of::<LLC>();
@@ -137,7 +130,6 @@ impl LLC {
             _ => None,
         }
     }
-    
 }
 
 // --- Test Module ---
