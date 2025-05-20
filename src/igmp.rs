@@ -8,7 +8,7 @@ use core::ptr;
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct IgmpV2Hdr {
     /// The IGMP message type
-    pub p_type: u8,
+    pub type_: u8,
     /// Maximum time allowed before sending a responding report, in 1/10 seconds
     pub max_res_time: u8,
     /// The 16-bit checksum used to detect data corruption
@@ -35,14 +35,14 @@ impl IgmpV2Hdr {
 
     /// Returns the group_addr field
     #[inline]
-    pub fn group_addr(&self) -> u32 {
-        u32::from_be_bytes(self.group_addr)
+    pub fn group_addr(&self) -> core::net::Ipv4Addr {
+        core::net::Ipv4Addr::from(self.group_addr)
     }
 
     /// Sets the group_addr field
     #[inline]
-    pub fn set_group_addr(&mut self, group_addr: u32) {
-        self.group_addr = group_addr.to_be_bytes();
+    pub fn set_group_addr(&mut self, group_addr: core::net::Ipv4Addr) {
+        self.group_addr = group_addr.octets();
     }
 }
 
@@ -52,7 +52,7 @@ impl IgmpV2Hdr {
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct IgmpV3Hdr {
     /// The IGMP message type
-    pub p_type: u8,
+    pub type_: u8,
     /// Maximum time allowed before sending a response in tenths of a second
     pub max_res_time: u8,
     /// The 16-bit checksum used for error detection
@@ -129,7 +129,7 @@ impl IgmpV3Hdr {
     /// Extracts the 3-bit value for QRV
     #[inline]
     pub fn qrv(&self) -> u8 {
-        //Mask last three bits to ensure value
+        // Mask last three bits to ensure value
         self.rsrv_supp_qrv & Self::QRV_MASK_IN_BYTE
     }
 
@@ -158,14 +158,14 @@ impl IgmpV3Hdr {
 
     /// Returns the group_addr field
     #[inline]
-    pub fn group_addr(&self) -> u32 {
-        u32::from_be_bytes(self.group_addr)
+    pub fn group_addr(&self) -> core::net::Ipv4Addr {
+        core::net::Ipv4Addr::from(self.group_addr)
     }
 
     /// Sets the group_addr field
     #[inline]
-    pub fn set_group_addr(&mut self, group_addr: u32) {
-        self.group_addr = group_addr.to_be_bytes();
+    pub fn set_group_addr(&mut self, group_addr: core::net::Ipv4Addr) {
+        self.group_addr = group_addr.octets();
     }
 
     /// Returns the num_srs field.
@@ -255,7 +255,7 @@ impl IgmpV3Hdr {
     ///     let mut sources_buffer: [u32; MAX_PROGRAM_IGMP_SOURCES] = [0; MAX_PROGRAM_IGMP_SOURCES];
     ///
     ///     match unsafe {
-    ///         IgmpV3Hdr::read_source_addresses_from_packet(
+    ///         IgmpV3Hdr::src_addresses_from_packet(
     ///             igmp_header_ptr,
     ///             packet_data_end_ptr,
     ///             &mut sources_buffer,
@@ -296,42 +296,42 @@ impl IgmpV3Hdr {
     ///     }
     /// }
     ///  --- End Conceptual TC eBPF Program Snippet ---
-    pub unsafe fn read_source_addresses_from_packet(
+    pub unsafe fn src_addresses_from_packet(
         header_ptr: *const IgmpV3Hdr,
         packet_end_ptr: *const u8,
         output_sources_slice: &mut [u32],
     ) -> Result<usize, IgmpV3Error> {
-        //Ensure fixed part of IGMPv3 header is within packet bounds
+        // Ensure fixed part of IGMPv3 header is within packet bounds
         let igmpv3_size = core::mem::size_of::<IgmpV3Hdr>();
         if (header_ptr as *const u8).add(igmpv3_size) > packet_end_ptr {
             return Err(IgmpV3Error::OutOfBounds);
         }
 
-        //Extract expected number of sources to read from the header, convert from big endian to a number
-        //Get pointer to location first
+        // Extract expected number of sources to read from the header, convert from big endian to a number
+        // Get pointer to location first
         let num_sources_ptr = ptr::addr_of!((*header_ptr).num_srcs);
         let num_sources_be = unsafe { ptr::read_unaligned(num_sources_ptr) };
         let num_sources_expected = u16::from_be_bytes(num_sources_be) as usize;
 
-        //Calculate starting location of Source Addresses, directly after IGMPv3 header struct
+        // Calculate starting location of Source Addresses, directly after IGMPv3 header struct
         let sources_start_ptr = (header_ptr as *const u8).add(igmpv3_size) as *const u32;
 
-        //Check if expected number of sources fits within packet data range
-        //saturating_mul multiplies itself by passed value
+        // Check if expected number of sources fits within packet data range
+        // saturating_mul multiplies itself by passed value
         let expected_sources_len_bytes =
             num_sources_expected.saturating_mul(core::mem::size_of::<u32>());
         if (sources_start_ptr as *const u8).add(expected_sources_len_bytes) > packet_end_ptr {
             return Err(IgmpV3Error::OutOfBounds);
         }
 
-        //Check how many sources to copy based on size limit of output_sources_slice
+        // Check how many sources to copy based on size limit of output_sources_slice
         let num_to_copy = if num_sources_expected > output_sources_slice.len() {
             output_sources_slice.len()
         } else {
             num_sources_expected
         };
 
-        //Finally, copy sources into provided array
+        // Finally, copy sources into provided array
         for i in 0..num_to_copy {
             let source_ip_be = ptr::read_volatile(sources_start_ptr.add(i));
             output_sources_slice[i] = u32::from_be(source_ip_be);
@@ -366,7 +366,7 @@ mod tests {
         let header_ptr = header_bytes.as_ptr() as *const IgmpV3Hdr;
         let header: IgmpV3Hdr = unsafe { ptr::read_unaligned(header_ptr) };
 
-        assert_eq!(header.p_type, 0x22);
+        assert_eq!(header.type_, 0x22);
         assert_eq!(header.max_res_time, 0x50);
         assert_eq!(u16::from_be_bytes(header.check), 0xFEDC);
 
@@ -405,7 +405,7 @@ mod tests {
         let mut output_sources_buffer: [u32; 2] = [0; 2];
 
         let result = unsafe {
-            IgmpV3Hdr::read_source_addresses_from_packet(
+            IgmpV3Hdr::src_addresses_from_packet(
                 header_ptr,
                 packet_end_ptr,
                 &mut output_sources_buffer,
@@ -437,7 +437,7 @@ mod tests {
         let mut output_buffer: [u32; 1] = [999];
 
         let result = unsafe {
-            IgmpV3Hdr::read_source_addresses_from_packet(
+            IgmpV3Hdr::src_addresses_from_packet(
                 header_ptr,
                 packet_end_ptr,
                 &mut output_buffer,
@@ -475,7 +475,7 @@ mod tests {
         let mut output_buffer: [u32; 2] = [0; 2]; // Output buffer can only hold 2
 
         let result = unsafe {
-            IgmpV3Hdr::read_source_addresses_from_packet(
+            IgmpV3Hdr::src_addresses_from_packet(
                 header_ptr,
                 packet_end_ptr,
                 &mut output_buffer,
@@ -498,7 +498,7 @@ mod tests {
         let mut output_buffer: [u32; 1] = [0];
 
         let result = unsafe {
-            IgmpV3Hdr::read_source_addresses_from_packet(
+            IgmpV3Hdr::src_addresses_from_packet(
                 header_ptr,
                 packet_end_ptr,
                 &mut output_buffer,
@@ -532,7 +532,7 @@ mod tests {
         let mut output_buffer: [u32; 3] = [0; 3];
 
         let result = unsafe {
-            IgmpV3Hdr::read_source_addresses_from_packet(
+            IgmpV3Hdr::src_addresses_from_packet(
                 header_ptr,
                 packet_end_ptr,
                 &mut output_buffer,
@@ -560,7 +560,7 @@ mod tests {
         let mut output_buffer: [u32; 1] = [0];
 
         let result = unsafe {
-            IgmpV3Hdr::read_source_addresses_from_packet(
+            IgmpV3Hdr::src_addresses_from_packet(
                 header_ptr,
                 packet_end_ptr,
                 &mut output_buffer,
