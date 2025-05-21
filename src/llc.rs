@@ -69,7 +69,7 @@ impl LLC {
     }
 
     /// Checks if the SSAP C/R (Command/Response) bit is set (Response PDU).
-    /// true if Response PDU, false if Command PDU.
+    /// Returns `true` if it's a Response PDU, `false` if it's a Command PDU.
     #[inline]
     pub fn ssap_is_response(&self) -> bool {
         (self.ssap & 0x01) != 0
