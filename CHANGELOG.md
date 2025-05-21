@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.9](https://github.com/vadorovsky/network-types/compare/v0.0.8...v0.0.9) - 2025-05-21
+
+### Added
+
+- implement getters/setters for Ipv4Hdr and Ipv6Hdr fields ([#47](https://github.com/vadorovsky/network-types/pull/47))
+- vlan tag
+
+### Fixed
+
+- avoid UB with unknown EtherType values and improve usability ([#44](https://github.com/vadorovsky/network-types/pull/44))
+
+### Other
+
+- aligns UdpHdr fields and functions with other modules ([#52](https://github.com/vadorovsky/network-types/pull/52))
+- Update Ubuntu to latest
+- aligns VLAN related eth types to the linux naming convention
+- use EtherType instead of u16 for eth_type field
+
 ## [0.0.8](https://github.com/vadorovsky/network-types/compare/v0.0.7...v0.0.8) - 2025-04-07
 
 ### Added
