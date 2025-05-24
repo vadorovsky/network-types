@@ -5,16 +5,16 @@ use core::mem;
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct SctpHdr {
     /// Source port in network byte order (big-endian)
-    pub src: u16,
+    pub src: [u8; 2],
 
     /// Destination port in network byte order (big-endian)
-    pub dst: u16,
+    pub dst: [u8; 2],
 
     /// Verification tag
-    pub verification_tag: u32,
+    pub verification_tag: [u8; 4],
 
     /// Checksum
-    pub checksum: u32,
+    pub checksum: [u8; 4],
 }
 
 impl SctpHdr {
