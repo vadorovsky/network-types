@@ -9,15 +9,15 @@ pub const TCP_HDR_LEN: usize = mem::size_of::<TcpHdr>();
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct TcpHdr {
-    pub source: u16,
-    pub dest: u16,
-    pub seq: u32,
-    pub ack_seq: u32,
+    pub source: [u8; 2],
+    pub dest: [u8; 2],
+    pub seq: [u8; 4],
+    pub ack_seq: [u8; 4],
     pub _bitfield_align_1: [u8; 0],
     pub _bitfield_1: BitfieldUnit<[u8; 2usize]>,
-    pub window: u16,
-    pub check: u16,
-    pub urg_ptr: u16,
+    pub window: [u8; 2],
+    pub check: [u8; 2],
+    pub urg_ptr: [u8; 2],
 }
 
 impl TcpHdr {
