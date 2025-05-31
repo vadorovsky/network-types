@@ -56,7 +56,7 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
                 IpProto::Tcp => {
                     let tcphdr: *const TcpHdr =
                         unsafe { ptr_at(&ctx, EthHdr::LEN + Ipv4Hdr::LEN) }?;
-                    u16::from_be(unsafe { (*tcphdr).source })
+                    u16::from_be_bytes(unsafe { (*tcphdr).source })
                 }
                 IpProto::Udp => {
                     let udphdr: *const UdpHdr =
@@ -76,7 +76,7 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
                 IpProto::Tcp => {
                     let tcphdr: *const TcpHdr =
                         unsafe { ptr_at(&ctx, EthHdr::LEN  + Ipv6Hdr::LEN) }?;
-                    u16::from_be(unsafe { (*tcphdr).source })
+                    u16::from_be_bytes(unsafe { (*tcphdr).source })
                 }
                 IpProto::Udp => {
                     let udphdr: *const UdpHdr =
@@ -100,15 +100,15 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
 When naming stucts and fields, we are trying to stick to the following
 principles:
 
-* Use `CamelCase`, even for names which normally would be all uppercase
+- Use `CamelCase`, even for names which normally would be all uppercase
   (e.g. `Icmp` instead of `ICMP`). This is the convention used by the
   [std::net](https://doc.rust-lang.org/std/net/index.html) module.
-* Where field names (specified by RFCs or other standards) contain spaces,
+- Where field names (specified by RFCs or other standards) contain spaces,
   replace them with `_`. In general, use `snake_case` for field names.
-* Shorten the following verbose names:
-  * `source` -> `src`
-  * `destination` -> `dst`
-  * `address` -> `addr`
+- Shorten the following verbose names:
+  - `source` -> `src`
+  - `destination` -> `dst`
+  - `address` -> `addr`
 
 ## Feature flags
 
