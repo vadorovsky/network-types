@@ -14,7 +14,7 @@ pub struct VxlanHdr {
     ///
     /// This is a 24-bit number combined with reserved bytes, see [`VxlanHdr::vni`] and
     /// [`VxlanHdr::set_vni`].
-    pub vni: u32,
+    pub vni: [u8; 4],
 }
 
 impl VxlanHdr {
@@ -32,7 +32,7 @@ impl VxlanHdr {
 
     #[inline]
     pub fn vni(&self) -> u32 {
-        u32::from_be(self.vni) >> 8
+        u32::from_be_bytes(self.vni) >> 8
     }
 
     #[inline]
