@@ -15,6 +15,7 @@ pub struct VxlanHdr {
     /// This is a 24-bit number combined with reserved bytes, see [`VxlanHdr::vni`] and
     /// [`VxlanHdr::set_vni`].
     pub vni: [u8; 3],
+    pub _padding: u8,
 }
 
 impl VxlanHdr {
