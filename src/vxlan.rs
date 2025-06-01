@@ -14,7 +14,8 @@ pub struct VxlanHdr {
     ///
     /// This is a 24-bit number combined with reserved bytes, see [`VxlanHdr::vni`] and
     /// [`VxlanHdr::set_vni`].
-    pub vni: u32,
+    pub vni: [u8; 3],
+    pub _padding: u8,
 }
 
 impl VxlanHdr {
@@ -28,15 +29,5 @@ impl VxlanHdr {
     #[inline]
     pub fn set_vni_valid(&mut self, val: bool) {
         self.flags.set_bit(4, val)
-    }
-
-    #[inline]
-    pub fn vni(&self) -> u32 {
-        u32::from_be(self.vni) >> 8
-    }
-
-    #[inline]
-    pub fn set_vni(&mut self, vni: u32) -> u32 {
-        (vni << 8).to_be()
     }
 }
