@@ -248,6 +248,7 @@ impl IcmpHdr {
     }
 }
 
+/// These are the unsafe alternatives to the safe functions on `IcmpHdr` that do prevent undefined behavior.
 impl IcmpHdr {
     /// Returns the identification field from ICMP Echo/Timestamp/Info/Mask messages.
     /// Only valid for ICMP Types: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38.
