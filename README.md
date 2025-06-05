@@ -109,6 +109,7 @@ principles:
   - `source` -> `src`
   - `destination` -> `dst`
   - `address` -> `addr`
+  - `checksum` -> `check`
 
 ## Feature flags
 
