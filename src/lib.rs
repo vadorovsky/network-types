@@ -2,6 +2,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod arp;
+pub mod bgp;
 pub mod bitfield;
 pub mod eth;
 pub mod icmp;
