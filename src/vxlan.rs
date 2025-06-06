@@ -40,7 +40,8 @@ impl VxlanHdr {
         let mut hdr = VxlanHdr {
             flags: VXLAN_I_FLAG_MASK,
             reserved1: [0u8; 3],
-            vni_and_reserved2: [0u8; 4],
+            vni: [0u8; 3],
+            reserved2: 0u8,
         };
         hdr.set_vni(vni);
         hdr
@@ -114,9 +115,9 @@ impl VxlanHdr {
     pub fn vni(&self) -> u32 {
         u32::from_be_bytes([
             0,
-            self.vni_and_reserved2[0],
-            self.vni_and_reserved2[1],
-            self.vni_and_reserved2[2],
+            self.vni[0],
+            self.vni[1],
+            self.vni[2],
         ])
     }
 
@@ -130,9 +131,9 @@ impl VxlanHdr {
     pub fn set_vni(&mut self, vni: u32) {
         let vni_24bit = vni & 0x00FF_FFFF;
         let vni_bytes = vni_24bit.to_be_bytes();
-        self.vni_and_reserved2[0] = vni_bytes[1];
-        self.vni_and_reserved2[1] = vni_bytes[2];
-        self.vni_and_reserved2[2] = vni_bytes[3];
+        self.vni[0] = vni_bytes[1];
+        self.vni[1] = vni_bytes[2];
+        self.vni[2] = vni_bytes[3];
     }
 
     /// Returns the second reserved field (8 bits).
@@ -143,7 +144,7 @@ impl VxlanHdr {
     /// The 8-bit second reserved field.
     #[inline]
     pub fn reserved2(&self) -> u8 {
-        self.vni_and_reserved2[3]
+        self.reserved2
     }
 
     /// Sets the second reserved field (8 bits).
@@ -154,7 +155,7 @@ impl VxlanHdr {
     /// - `reserved`: The 8-bit value for the second reserved field.
     #[inline]
     pub fn set_reserved2(&mut self, reserved: u8) {
-        self.vni_and_reserved2[3] = reserved;
+        self.reserved2 = reserved;
     }
 }
 #[cfg(test)]
@@ -176,14 +177,15 @@ mod tests {
         assert_eq!(hdr.vni(), vni_val, "VNI should be set correctly by new()");
         assert_eq!(hdr.reserved2(), 0u8, "Reserved2 should be zeroed by new()");
     }
-    
+
     #[test]
     fn test_vxlanhdr_default() {
         let hdr = VxlanHdr::default();
         assert_eq!(hdr.flags, 0, "Default flags should be 0");
         assert!(!hdr.vni_present(), "Default VNI present flag should be false");
         assert_eq!(hdr.reserved1, [0,0,0], "Default reserved1 should be zero");
-        assert_eq!(hdr.vni_and_reserved2, [0,0,0,0], "Default vni_and_reserved2 should be zero");
+        assert_eq!(hdr.vni, [0,0,0], "Default vni should be zero");
+        assert_eq!(hdr.reserved2, 0, "Default reserved2 should be zero");
         assert_eq!(hdr.vni(), 0, "Default VNI should be 0");
         assert_eq!(hdr.reserved2(), 0, "Default reserved2 should be 0");
     }
@@ -257,7 +259,8 @@ mod tests {
         let mut hdr = VxlanHdr::default();
         hdr.flags = 0x08;
         hdr.reserved1 = [0x01, 0x02, 0x03];
-        hdr.vni_and_reserved2 = [0xAB, 0xCD, 0xEF, 0x55];
+        hdr.vni = [0xAB, 0xCD, 0xEF];
+        hdr.reserved2 = 0x55;
         assert_eq!(hdr.flags(), 0x08);
         assert!(hdr.vni_present());
         assert_eq!(hdr.reserved1(), [0x01, 0x02, 0x03]);
@@ -268,14 +271,14 @@ mod tests {
         hdr.set_reserved1([0x10, 0x20, 0x30]);
         assert_eq!(hdr.reserved1[0], 0x10, "Direct field check after set_reserved1");
         hdr.set_vni(0x654321);
-        assert_eq!(hdr.vni_and_reserved2[0], 0x65, "Byte 0 of vni_and_reserved2 after set_vni");
-        assert_eq!(hdr.vni_and_reserved2[1], 0x43, "Byte 1 of vni_and_reserved2 after set_vni");
-        assert_eq!(hdr.vni_and_reserved2[2], 0x21, "Byte 2 of vni_and_reserved2 after set_vni");
-        assert_eq!(hdr.vni_and_reserved2[3], 0x55, "Byte 3 (reserved2) of vni_and_reserved2 preserved after set_vni");
+        assert_eq!(hdr.vni[0], 0x65, "Byte 0 of vni after set_vni");
+        assert_eq!(hdr.vni[1], 0x43, "Byte 1 of vni after set_vni");
+        assert_eq!(hdr.vni[2], 0x21, "Byte 2 of vni after set_vni");
+        assert_eq!(hdr.reserved2, 0x55, "reserved2 preserved after set_vni");
         assert_eq!(hdr.vni(), 0x654321);
         hdr.set_reserved2(0xCC);
-        assert_eq!(hdr.vni_and_reserved2[3], 0xCC, "Byte 3 (reserved2) updated by set_reserved2");
-        assert_eq!(hdr.vni_and_reserved2[0], 0x65, "Byte 0 (VNI part) preserved after set_reserved2");
+        assert_eq!(hdr.reserved2, 0xCC, "reserved2 updated by set_reserved2");
+        assert_eq!(hdr.vni[0], 0x65, "Byte 0 of vni preserved after set_reserved2");
         assert_eq!(hdr.vni(), 0x654321); 
     }
 }
