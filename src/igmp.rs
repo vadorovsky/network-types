@@ -1,6 +1,5 @@
-use core::mem;
-use core::ptr;
 use crate::chunk_reader;
+use core::mem;
 
 /// Represents an IGMPv2 header according to RFC 2236.
 /// This header format applies to all IGMPv2 messages.
@@ -68,13 +67,6 @@ pub struct IgmpV3Hdr {
     pub qqic: u8,
     /// Number of source addresses that follow this header
     pub num_src: [u8; 2],
-}
-
-#[derive(Debug)]
-pub enum IgmpV3Error {
-    /// Indicates an attempt to read data outside the valid packet boundaries.
-    OutOfBounds,
-    // Maybe add an error about running out of stack memory?
 }
 
 const SRC_ADDRESSES_CHUNK_LEN: usize = mem::size_of::<u32>();
@@ -181,13 +173,16 @@ impl IgmpV3Hdr {
     pub fn set_num_src(&mut self, num_src: u16) {
         self.num_src = num_src.to_be_bytes();
     }
+}
 
+/// These are the unsafe functions on `IgmpV3Hdr` that do not prevent undefined behavior.
+impl IgmpV3Hdr {
     /// Reads IGMPv3 source addresses from packet data into a caller-provided slice.
     /// This is a convenience method that uses the instance as the header pointer.
     ///
     /// # Safety
     /// - `self` must be a valid reference to an `IgmpV3Hdr` header within properly aligned packet data
-    /// - The memory region starting at `self` and extending to include all source addresses must be 
+    /// - The memory region starting at `self` and extending to include all source addresses must be
     ///   valid and accessible
     ///
     /// # Arguments
@@ -197,17 +192,23 @@ impl IgmpV3Hdr {
     /// # Returns
     /// - `Ok(count)`: The number of source addresses successfully read and written to the buffer
     /// - `Err(IgmpV3Error)`: If an error occurs reading the packet data
-    pub unsafe fn src_addresses_buffer(&self, src_addr_buffer: &mut [u32]) -> Result<usize, chunk_reader::ChunkReaderError> {
+    pub unsafe fn src_addresses_buffer(
+        &self,
+        src_addr_buffer: &mut [u32],
+    ) -> Result<usize, chunk_reader::ChunkReaderError> {
         let self_ptr: *const IgmpV3Hdr = self;
         let self_ptr_u8: *const u8 = self_ptr as *const u8;
-        let total_hdr_len = self.num_src() as usize * SRC_ADDRESSES_CHUNK_LEN + IgmpV3Hdr::LEN;
+        let num_src = self.num_src() as usize;
+        let total_hdr_len = num_src * SRC_ADDRESSES_CHUNK_LEN + IgmpV3Hdr::LEN;
         let start_data_ptr = (self_ptr_u8).add(IgmpV3Hdr::LEN);
         let end_data_ptr = (self_ptr_u8).add(total_hdr_len);
-        if total_hdr_len <= IgmpV3Hdr::LEN {
-            return Ok(0);
-        }
 
-        chunk_reader::read_chunks(start_data_ptr, end_data_ptr, src_addr_buffer, SRC_ADDRESSES_CHUNK_LEN)
+        chunk_reader::read_chunks(
+            start_data_ptr,
+            end_data_ptr,
+            src_addr_buffer,
+            SRC_ADDRESSES_CHUNK_LEN,
+        )
     }
 }
 
@@ -267,20 +268,12 @@ mod tests {
         packet_buffer[current_offset..current_offset + 4].copy_from_slice(&source1_ip_bytes);
         current_offset += 4;
         packet_buffer[current_offset..current_offset + 4].copy_from_slice(&source2_ip_bytes);
-        current_offset += 4;
-        let packet_data_len = current_offset; // Actual length of meaningful data
 
         let header_ptr = packet_buffer.as_ptr() as *const IgmpV3Hdr;
-        let packet_end_ptr = unsafe { packet_buffer.as_ptr().add(packet_data_len) };
+        let header = unsafe { &*header_ptr };
         let mut output_sources_buffer: [u32; 2] = [0; 2];
 
-        let result = unsafe {
-            IgmpV3Hdr::src_addresses_buffer(
-                header_ptr,
-                packet_end_ptr,
-                &mut output_sources_buffer,
-            )
-        };
+        let result = unsafe { header.src_addresses_buffer(&mut output_sources_buffer) };
 
         assert!(result.is_ok(), "Expected Ok, got {:?}", result);
         let count_read = result.unwrap();
@@ -300,19 +293,12 @@ mod tests {
             0x00, // num_srcs = 0 (BE)
         ];
         packet_buffer[0..IGMPV3_HDR_LEN].copy_from_slice(&header_fixed_part);
-        let packet_data_len = IGMPV3_HDR_LEN;
 
         let header_ptr = packet_buffer.as_ptr() as *const IgmpV3Hdr;
-        let packet_end_ptr = unsafe { packet_buffer.as_ptr().add(packet_data_len) };
+        let header = unsafe { &*header_ptr };
         let mut output_buffer: [u32; 1] = [999];
 
-        let result = unsafe {
-            IgmpV3Hdr::src_addresses_buffer(
-                header_ptr,
-                packet_end_ptr,
-                &mut output_buffer,
-            )
-        };
+        let result = unsafe { header.src_addresses_buffer(&mut output_buffer) };
 
         assert!(result.is_ok(), "Expected Ok, got {:?}", result);
         assert_eq!(result.unwrap(), 0, "Should have read 0 sources");
@@ -337,109 +323,17 @@ mod tests {
         packet_buffer[current_offset..current_offset + 4].copy_from_slice(&source2_bytes);
         current_offset += 4;
         packet_buffer[current_offset..current_offset + 4].copy_from_slice(&source3_bytes);
-        current_offset += 4;
-        let packet_data_len = current_offset;
 
         let header_ptr = packet_buffer.as_ptr() as *const IgmpV3Hdr;
-        let packet_end_ptr = unsafe { packet_buffer.as_ptr().add(packet_data_len) };
+        let header = unsafe { &*header_ptr };
         let mut output_buffer: [u32; 2] = [0; 2]; // Output buffer can only hold 2
 
-        let result = unsafe {
-            IgmpV3Hdr::src_addresses_buffer(
-                header_ptr,
-                packet_end_ptr,
-                &mut output_buffer,
-            )
-        };
+        let result = unsafe { header.src_addresses_buffer(&mut output_buffer) };
 
         assert!(result.is_ok(), "Expected Ok, got {:?}", result);
         let count_read = result.unwrap();
         assert_eq!(count_read, 2, "Should have copied only 2 sources");
         assert_eq!(output_buffer[0], u32::from_be_bytes(source1_bytes));
         assert_eq!(output_buffer[1], u32::from_be_bytes(source2_bytes));
-    }
-
-    #[test]
-    fn test_read_sources_err_packet_too_short_for_header() {
-        let packet_data: [u8; IGMPV3_HDR_LEN - 2] = [0; IGMPV3_HDR_LEN - 2]; // Too short for header
-
-        let header_ptr = packet_data.as_ptr() as *const IgmpV3Hdr;
-        let packet_end_ptr = unsafe { packet_data.as_ptr().add(packet_data.len()) };
-        let mut output_buffer: [u32; 1] = [0];
-
-        let result = unsafe {
-            IgmpV3Hdr::src_addresses_buffer(
-                header_ptr,
-                packet_end_ptr,
-                &mut output_buffer,
-            )
-        };
-
-        assert!(result.is_err(), "Expected Err, got Ok: {:?}", result);
-        assert!(
-            matches!(result.unwrap_err(), IgmpV3Error::OutOfBounds),
-            "Expected OutOfBounds error"
-        );
-    }
-
-    #[test]
-    fn test_read_sources_err_packet_too_short_for_claimed_sources() {
-        let mut packet_buffer = [0u8; MAX_TEST_PACKET_BUFFER_SIZE];
-        let header_fixed_part: [u8; IGMPV3_HDR_LEN] = [
-            0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x03, // num_srcs = 3 (BE)
-        ];
-        let source1_bytes = [1u8, 0, 0, 1]; // BE
-
-        packet_buffer[0..IGMPV3_HDR_LEN].copy_from_slice(&header_fixed_part);
-        let mut current_offset = IGMPV3_HDR_LEN;
-        packet_buffer[current_offset..current_offset + 4].copy_from_slice(&source1_bytes);
-        current_offset += 4;
-        let packet_data_len = current_offset; // Data for only 1 source, header claims 3
-
-        let header_ptr = packet_buffer.as_ptr() as *const IgmpV3Hdr;
-        let packet_end_ptr = unsafe { packet_buffer.as_ptr().add(packet_data_len) };
-        let mut output_buffer: [u32; 3] = [0; 3];
-
-        let result = unsafe {
-            IgmpV3Hdr::src_addresses_buffer(
-                header_ptr,
-                packet_end_ptr,
-                &mut output_buffer,
-            )
-        };
-        assert!(result.is_err(), "Expected Err, got Ok: {:?}", result);
-        assert!(
-            matches!(result.unwrap_err(), IgmpV3Error::OutOfBounds),
-            "Expected OutOfBounds error"
-        );
-    }
-
-    #[test]
-    fn test_read_sources_err_no_space_for_any_sources_when_num_sources_gt_0() {
-        let mut packet_buffer = [0u8; MAX_TEST_PACKET_BUFFER_SIZE];
-        let header_fixed_part: [u8; IGMPV3_HDR_LEN] = [
-            0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x01, // num_srcs = 1 (BE)
-        ];
-        packet_buffer[0..IGMPV3_HDR_LEN].copy_from_slice(&header_fixed_part);
-        let packet_data_len = IGMPV3_HDR_LEN; // Packet ends exactly after header
-
-        let header_ptr = packet_buffer.as_ptr() as *const IgmpV3Hdr;
-        let packet_end_ptr = unsafe { packet_buffer.as_ptr().add(packet_data_len) };
-        let mut output_buffer: [u32; 1] = [0];
-
-        let result = unsafe {
-            IgmpV3Hdr::src_addresses_buffer(
-                header_ptr,
-                packet_end_ptr,
-                &mut output_buffer,
-            )
-        };
-        assert!(result.is_err(), "Expected Err, got Ok: {:?}", result);
-        assert!(
-            matches!(result.unwrap_err(), IgmpV3Error::OutOfBounds),
-            "Expected OutOfBounds error"
-        );
     }
 }
