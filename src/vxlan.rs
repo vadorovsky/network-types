@@ -16,7 +16,8 @@ pub struct VxlanHdr {
     pub reserved1: [u8; 3],
     /// Contains the 24-bit VNI (upper 3 bytes) and an 8-bit reserved field (the lowest byte).
     /// The reserved field (the lowest byte) must be zero on transmission.
-    pub vni_and_reserved2: [u8; 4],
+    pub vni: [u8; 3],
+    pub reserved2: u8,
 }
 
 /// Mask for the I-flag (VNI Present flag, bit 3) in the `flags` field.
