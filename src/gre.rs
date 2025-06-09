@@ -12,22 +12,22 @@
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
-pub struct Gre {
+pub struct GreHdr {
     /// A 16-bit field containing the Checksum Present flag (1 bit),
     /// Reserved0 (12 bits), and Version (3 bits).
     /// In a compliant packet, Reserved0 and Version MUST be 0.
     flag_reserved0_ver: u16,
     /// The protocol type of the encapsulated payload packet.
-    protocol_type: u16,
+    protocol_type: [u8; 2],
     /// The checksum for the GRE header and payload (optional).
     /// This field is only valid if the Checksum Present flag is set.
-    checksum: u16,
+    checksum: [u8; 2],
     /// A reserved field for future use, which must be transmitted as zero (optional).
     /// This field is only present if the Checksum Present flag is set.
-    reserved1: u16,
+    reserved1: [u8; 2],
 }
 
-impl Gre {
+impl GreHdr {
     /// Checks if the Checksum Present bit (C) is set.
     /// If true, the header is 8 bytes long and includes the `checksum` and `reserved1` fields.
     #[inline]
@@ -66,42 +66,43 @@ impl Gre {
 
     /// Gets the Protocol Type of the payload packet.
     #[inline]
-    pub fn protocol_type(&self) -> u16 {
-        u16::from_be(self.protocol_type)
+    pub fn protocol_type(&self) -> [u8; 2] {
+        self.protocol_type
     }
 
     /// Sets the Protocol Type of the payload packet.
     #[inline]
-    pub fn set_protocol_type(&mut self, protocol_type: u16) {
-        self.protocol_type = u16::to_be(protocol_type);
+    pub fn set_protocol_type(&mut self, protocol_type: [u8; 2]) {
+        // self.protocol_type = u16::to_be(protocol_type);
+        self.protocol_type = [protocol_type[0], protocol_type[1]];
     }
 
     /// Gets the checksum value.
     /// This field is only valid if `checksum_present()` returns true.
     #[inline]
-    pub fn checksum(&self) -> u16 {
-        u16::from_be(self.checksum)
+    pub fn checksum(&self) -> [u8; 2] {
+        self.checksum
     }
 
     /// Sets the checksum value.
     /// This is only meaningful to a receiver if `checksum_present()` is set to true.
     #[inline]
-    pub fn set_checksum(&mut self, checksum: u16) {
-        self.checksum = u16::to_be(checksum);
+    pub fn set_checksum(&mut self, checksum: [u8; 2]) {
+        self.checksum = [checksum[0], checksum[1]];
     }
 
     /// Gets the Reserved1 field.
     /// This field is only valid if `checksum_present()` returns true.
     #[inline]
-    pub fn reserved1(&self) -> u16 {
-        u16::from_be(self.reserved1)
+    pub fn reserved1(&self) -> [u8; 2] {
+        self.reserved1
     }
 
     /// Sets the Reserved1 field.
     /// According to RFC 2784, this value MUST be transmitted as zero.
     #[inline]
-    pub fn set_reserved1(&mut self, value: u16) {
-        self.reserved1 = u16::to_be(value);
+    pub fn set_reserved1(&mut self, value: [u8; 2]) {
+        self.reserved1 = [value[0], value[1]];
     }
 
     /// Returns the total length of the GRE header in bytes based on the Checksum Present flag.
@@ -118,11 +119,11 @@ impl Gre {
 #[cfg(test)]
 mod tests {
     use super::*;
-    unsafe fn gre_from_bytes(bytes: &[u8; 8]) -> &Gre {
-        &*(bytes.as_ptr() as *const Gre)
+    unsafe fn gre_from_bytes(bytes: &[u8; 8]) -> &GreHdr {
+        &*(bytes.as_ptr() as *const GreHdr)
     }
-    unsafe fn gre_from_bytes_mut(bytes: &mut [u8; 8]) -> &mut Gre {
-        &mut *(bytes.as_mut_ptr() as *mut Gre)
+    unsafe fn gre_from_bytes_mut(bytes: &mut [u8; 8]) -> &mut GreHdr {
+        &mut *(bytes.as_mut_ptr() as *mut GreHdr)
     }
     
     #[test]
@@ -180,7 +181,7 @@ mod tests {
     fn test_get_protocol_type() {
         let received_bytes: [u8; 8] = [0,0, 0x86, 0xDD, 0,0,0,0];
         let received_header = unsafe { gre_from_bytes(&received_bytes) };
-        assert_eq!(received_header.protocol_type(), 0x86DD);
+        assert_eq!(received_header.protocol_type(), [0x86, 0xDD]);
     }
 
     #[test]
@@ -188,7 +189,7 @@ mod tests {
         let mut gre_bytes = [0u8; 8];
         let gre_header = unsafe { gre_from_bytes_mut(&mut gre_bytes) };
 
-        gre_header.set_protocol_type(0x0800);
+        gre_header.set_protocol_type([0x08, 0x00]);
         assert_eq!([gre_bytes[2], gre_bytes[3]], [0x08, 0x00]);
     }
 
@@ -196,7 +197,7 @@ mod tests {
     fn test_get_checksum() {
         let received_bytes: [u8; 8] = [0,0,0,0, 0xFE, 0xDC, 0,0];
         let received_header = unsafe { gre_from_bytes(&received_bytes) };
-        assert_eq!(received_header.checksum(), 0xFEDC);
+        assert_eq!(received_header.checksum(), [0xFE, 0xDC]);
     }
 
     #[test]
@@ -204,7 +205,7 @@ mod tests {
         let mut gre_bytes = [0u8; 8];
         let gre_header = unsafe { gre_from_bytes_mut(&mut gre_bytes) };
 
-        gre_header.set_checksum(0xABCD);
+        gre_header.set_checksum([0xAB, 0xCD]);
         assert_eq!([gre_bytes[4], gre_bytes[5]], [0xAB, 0xCD]);
     }
 
@@ -212,7 +213,7 @@ mod tests {
     fn test_get_reserved1() {
         let received_bytes: [u8; 8] = [0,0,0,0,0,0, 0xBE, 0xEF];
         let received_header = unsafe { gre_from_bytes(&received_bytes) };
-        assert_eq!(received_header.reserved1(), 0xBEEF);
+        assert_eq!(received_header.reserved1(), [0xBE, 0xEF]);
     }
 
     #[test]
@@ -220,7 +221,7 @@ mod tests {
         let mut gre_bytes = [0u8; 8];
         let gre_header = unsafe { gre_from_bytes_mut(&mut gre_bytes) };
 
-        gre_header.set_reserved1(0x1234);
+        gre_header.set_reserved1([0x12, 0x34]);
         assert_eq!([gre_bytes[6], gre_bytes[7]], [0x12, 0x34]);
     }
 
