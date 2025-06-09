@@ -16,96 +16,105 @@ pub struct GreHdr {
     /// A 16-bit field containing the Checksum Present flag (1 bit),
     /// Reserved0 (12 bits), and Version (3 bits).
     /// In a compliant packet, Reserved0 and Version MUST be 0.
-    flag_reserved0_ver: u16,
+    pub flag_reserved0_ver: [u8; 2],
     /// The protocol type of the encapsulated payload packet.
-    protocol_type: [u8; 2],
+    pub protocol_type: [u8; 2],
     /// The checksum for the GRE header and payload (optional).
     /// This field is only valid if the Checksum Present flag is set.
-    checksum: [u8; 2],
+    pub checksum: [u8; 2],
     /// A reserved field for future use, which must be transmitted as zero (optional).
     /// This field is only present if the Checksum Present flag is set.
-    reserved1: [u8; 2],
+    pub reserved1: [u8; 2],
 }
 
 impl GreHdr {
     /// Checks if the Checksum Present bit (C) is set.
-    /// If true, the header is 8 bytes long and includes the `checksum` and `reserved1` fields.
     #[inline]
     pub fn checksum_present(&self) -> bool {
-        (u16::from_be(self.flag_reserved0_ver) & 0x8000) != 0
+        (self.flag_reserved0_ver[0] & 0x80) != 0
     }
 
     /// Sets or clears the Checksum Present bit (C).
-    /// All other flags and the version number are preserved.
     #[inline]
     pub fn set_checksum_present(&mut self, present: bool) {
-        let current_flags = u16::from_be(self.flag_reserved0_ver);
-        let new_flags = if present {
-            current_flags | 0x8000
+        if present {
+            self.flag_reserved0_ver[0] |= 0x80;
         } else {
-            current_flags & !0x8000
-        };
-        self.flag_reserved0_ver = u16::to_be(new_flags);
+            self.flag_reserved0_ver[0] &= !0x80;
+        }
     }
 
-    /// Gets the 3-bit Version number. For RFC 2784, this value must be 0.
+    /// Gets the 12-bit Reserved0 field.
     #[inline]
-    pub fn version(&self) -> u8 {
-        (u16::from_be(self.flag_reserved0_ver) & 0x0007) as u8
+    pub fn get_reserved0(&self) -> u16 {
+        let upper = ((self.flag_reserved0_ver[1] & 0xF8) >> 3) as u16;
+        let lower = (self.flag_reserved0_ver[0] & 0x7F) as u16;
+        
+        (upper << 7) | lower
     }
 
-    /// Sets the 3-bit Version number.
-    /// According to RFC 2784, this value MUST be 0.
+    /// Sets the 12-bit Reserved0 field.
+    /// According to RFC 2784, this value SHOULD be set to 0.
+    #[inline]
+    pub fn set_reserved0(&mut self, value: u16) {
+        let value = value & 0x0FFF;
+
+        let upper = (value >> 7) as u8;
+        let lower = (value & 0x007F) as u8;
+        
+        self.flag_reserved0_ver[0] = (self.flag_reserved0_ver[0] & 0x80) | lower;
+        self.flag_reserved0_ver[1] = (self.flag_reserved0_ver[1] & 0x07) | (upper << 3);
+    }
+
+    /// Gets the 3-bit Version number.
+    #[inline]
+    pub fn get_version(&self) -> u8 {
+        self.flag_reserved0_ver[1] & 0x07
+    }
+
+    /// Sets the 3-bit Version number. Per RFC 2784, this MUST be 0.
     #[inline]
     pub fn set_version(&mut self, version: u8) {
-        let version_val = (version & 0x07) as u16;
-        let current_flags = u16::from_be(self.flag_reserved0_ver);
-        let new_flags = (current_flags & !0x0007) | version_val;
-        self.flag_reserved0_ver = u16::to_be(new_flags);
+        self.flag_reserved0_ver[1] = (self.flag_reserved0_ver[1] & 0xF8) | (version & 0x07);
     }
 
-    /// Gets the Protocol Type of the payload packet.
+    /// Gets the Protocol Type as a big-endian 2-byte array.
     #[inline]
-    pub fn protocol_type(&self) -> [u8; 2] {
+    pub fn get_protocol_type(&self) -> [u8; 2] {
         self.protocol_type
     }
 
-    /// Sets the Protocol Type of the payload packet.
+    /// Sets the Protocol Type from a big-endian 2-byte array.
     #[inline]
     pub fn set_protocol_type(&mut self, protocol_type: [u8; 2]) {
-        // self.protocol_type = u16::to_be(protocol_type);
-        self.protocol_type = [protocol_type[0], protocol_type[1]];
+        self.protocol_type = protocol_type;
     }
 
-    /// Gets the checksum value.
-    /// This field is only valid if `checksum_present()` returns true.
+    /// Gets the checksum as a big-endian 2-byte array.
     #[inline]
-    pub fn checksum(&self) -> [u8; 2] {
+    pub fn get_checksum(&self) -> [u8; 2] {
         self.checksum
     }
 
-    /// Sets the checksum value.
-    /// This is only meaningful to a receiver if `checksum_present()` is set to true.
+    /// Sets the checksum from a big-endian 2-byte array.
     #[inline]
     pub fn set_checksum(&mut self, checksum: [u8; 2]) {
-        self.checksum = [checksum[0], checksum[1]];
+        self.checksum = checksum;
     }
-
-    /// Gets the Reserved1 field.
-    /// This field is only valid if `checksum_present()` returns true.
+    
+    /// Gets the reserved1 as a big-endian 2-byte array.
     #[inline]
-    pub fn reserved1(&self) -> [u8; 2] {
+    pub fn get_reserved1(&self) -> [u8; 2] {
         self.reserved1
     }
-
-    /// Sets the Reserved1 field.
-    /// According to RFC 2784, this value MUST be transmitted as zero.
+    
+    /// Sets the reserved1 from a big-endian 2-byte array.
     #[inline]
-    pub fn set_reserved1(&mut self, value: [u8; 2]) {
-        self.reserved1 = [value[0], value[1]];
+    pub fn set_reserved1(&mut self, reserved1: [u8; 2]) {
+        self.reserved1 = reserved1;
     }
 
-    /// Returns the total length of the GRE header in bytes based on the Checksum Present flag.
+    /// Returns the total length of the GRE header based on the RFC specification.
     #[inline]
     pub fn header_len(&self) -> usize {
         if self.checksum_present() {
@@ -125,7 +134,7 @@ mod tests {
     unsafe fn gre_from_bytes_mut(bytes: &mut [u8; 8]) -> &mut GreHdr {
         &mut *(bytes.as_mut_ptr() as *mut GreHdr)
     }
-    
+
     #[test]
     fn test_get_checksum_present() {
         let received_bytes: [u8; 8] = [0x80, 0x00, 0,0,0,0,0,0];
@@ -145,7 +154,7 @@ mod tests {
             gre_header.set_checksum_present(true);
         }
         assert_eq!(gre_bytes[0], 0x80);
-        
+
         {
             let gre_header = unsafe { gre_from_bytes_mut(&mut gre_bytes) };
             gre_header.set_checksum_present(false);
@@ -157,7 +166,7 @@ mod tests {
     fn test_get_version() {
         let received_bytes: [u8; 8] = [0x00, 0x07, 0,0,0,0,0,0];
         let received_header = unsafe { gre_from_bytes(&received_bytes) };
-        assert_eq!(received_header.version(), 7);
+        assert_eq!(received_header.get_version(), 7);
     }
 
     #[test]
@@ -171,7 +180,8 @@ mod tests {
 
         {
             let gre_header = unsafe { gre_from_bytes_mut(&mut gre_bytes) };
-            gre_header.flag_reserved0_ver = u16::to_be(0x8000);
+            // gre_header.flag_reserved0_ver = u16::to_be(0x8000);
+            gre_header.flag_reserved0_ver = [0x80, 0x00];
             gre_header.set_version(3);
         }
         assert_eq!([gre_bytes[0], gre_bytes[1]], [0x80, 0x03]);
@@ -181,7 +191,7 @@ mod tests {
     fn test_get_protocol_type() {
         let received_bytes: [u8; 8] = [0,0, 0x86, 0xDD, 0,0,0,0];
         let received_header = unsafe { gre_from_bytes(&received_bytes) };
-        assert_eq!(received_header.protocol_type(), [0x86, 0xDD]);
+        assert_eq!(received_header.get_protocol_type(), [0x86, 0xDD]);
     }
 
     #[test]
@@ -197,7 +207,7 @@ mod tests {
     fn test_get_checksum() {
         let received_bytes: [u8; 8] = [0,0,0,0, 0xFE, 0xDC, 0,0];
         let received_header = unsafe { gre_from_bytes(&received_bytes) };
-        assert_eq!(received_header.checksum(), [0xFE, 0xDC]);
+        assert_eq!(received_header.get_checksum(), [0xFE, 0xDC]);
     }
 
     #[test]
@@ -213,7 +223,7 @@ mod tests {
     fn test_get_reserved1() {
         let received_bytes: [u8; 8] = [0,0,0,0,0,0, 0xBE, 0xEF];
         let received_header = unsafe { gre_from_bytes(&received_bytes) };
-        assert_eq!(received_header.reserved1(), [0xBE, 0xEF]);
+        assert_eq!(received_header.get_reserved1(), [0xBE, 0xEF]);
     }
 
     #[test]
