@@ -13,15 +13,27 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
           override: true
 
-      - name: Test
+      - name: Run Cargo Check
+        run: cargo check
+
+      - name: Run Cargo Format
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy
+
+      - name: Run Tests
         env:
           RUST_BACKTRACE: full
         run: |
           cargo test --verbose
+
+      - name: Run Benchmark Tests
+        run: cargo bench
