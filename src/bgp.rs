@@ -102,7 +102,7 @@ pub struct BgpHdr {
     pub msg_type: u8,
     /// Bytes for the message-specific fixed payload.
     /// Sized by the largest possible fixed payload (`OpenMsgLayout::LEN`).
-    pub specific_payload_bytes: [u8; OpenMsgLayout::LEN],
+    pub data: BpgMsgUn,
 }
 
 impl BgpHdr {
