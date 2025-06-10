@@ -5,11 +5,11 @@ use core::mem;
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct ArpHdr {
-    pub hardware_type: u16,
-    pub protocol_type: u16,
+    pub hardware_type: [u8; 2],
+    pub protocol_type: [u8; 2],
     pub hardware_length: u8,
     pub protocol_length: u8,
-    pub operation: u16,
+    pub operation: [u8; 2],
     pub sender_hardware_address: [u8; 6],
     pub sender_protocol_address: [u8; 4],
     pub target_hardware_address: [u8; 6],
@@ -21,25 +21,25 @@ impl ArpHdr {
 
     // Returns the hardware type field.
     #[inline]
-    pub fn hardware_type(&self) -> u16 {
+    pub fn hardware_type(&self) -> [u8; 2] {
         self.hardware_type
     }
 
     // Sets the hardware type field.
     #[inline]
-    pub fn set_hardware_type(&mut self, hardware_type: u16) {
+    pub fn set_hardware_type(&mut self, hardware_type: [u8; 2]) {
         self.hardware_type = hardware_type;
     }
 
     // Returns the protocol type field.
     #[inline]
-    pub fn protocol_type(&self) -> u16 {
+    pub fn protocol_type(&self) -> [u8; 2] {
         self.protocol_type
     }
 
     // Sets the protocol type field.
     #[inline]
-    pub fn set_protocol_type(&mut self, protocol_type: u16) {
+    pub fn set_protocol_type(&mut self, protocol_type: [u8; 2]) {
         self.protocol_type = protocol_type;
     }
 
@@ -69,13 +69,13 @@ impl ArpHdr {
 
     // Returns the operation field.
     #[inline]
-    pub fn operation(&self) -> u16 {
+    pub fn operation(&self) -> [u8; 2] {
         self.operation
     }
 
     // Sets the operation field.
     #[inline]
-    pub fn set_operation(&mut self, operation: u16) {
+    pub fn set_operation(&mut self, operation: [u8; 2]) {
         self.operation = operation
     }
 
@@ -134,11 +134,11 @@ mod tests {
 
     fn default_arp_hdr() -> ArpHdr {
         ArpHdr {
-            hardware_type: 0,
-            protocol_type: 0,
+            hardware_type: [0; 2],
+            protocol_type: [0; 2],
             hardware_length: 0,
             protocol_length: 0,
-            operation: 0,
+            operation: [0; 2],
             sender_hardware_address: [0; 6],
             sender_protocol_address: [0; 4],
             target_hardware_address: [0; 6],
@@ -155,17 +155,19 @@ mod tests {
     #[test]
     fn test_hardware_type() {
         let mut hdr = default_arp_hdr();
-        // Test with Ethernet
-        hdr.set_hardware_type(1);
-        assert_eq!(hdr.hardware_type(), 1);
+        // Test with Ethernet (value 1)
+        let hw_type = 1u16.to_be_bytes();
+        hdr.set_hardware_type(hw_type);
+        assert_eq!(hdr.hardware_type(), hw_type);
     }
 
     #[test]
     fn test_protocol_type() {
         let mut hdr = default_arp_hdr();
-        // Test with IPv4
-        hdr.set_protocol_type(0x0800);
-        assert_eq!(hdr.protocol_type(), 0x0800);
+        // Test with IPv4 (value 0x0800)
+        let proto_type = 0x0800u16.to_be_bytes();
+        hdr.set_protocol_type(proto_type);
+        assert_eq!(hdr.protocol_type(), proto_type);
     }
 
     #[test]
@@ -187,10 +189,14 @@ mod tests {
     #[test]
     fn test_operation() {
         let mut hdr = default_arp_hdr();
-        hdr.set_operation(1);
-        assert_eq!(hdr.operation(), 1);
-        hdr.set_operation(2);
-        assert_eq!(hdr.operation(), 2);
+        // Test with ARP Request (1)
+        let op_request = 1u16.to_be_bytes();
+        hdr.set_operation(op_request);
+        assert_eq!(hdr.operation(), op_request);
+        // Test with ARP Reply (2)
+        let op_reply = 2u16.to_be_bytes();
+        hdr.set_operation(op_reply);
+        assert_eq!(hdr.operation(), op_reply);
     }
 
     #[test]
