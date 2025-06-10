@@ -90,7 +90,7 @@ impl RouteRefreshMsgLayout {
 
 /// BGP header and initially fixed part of its payload.
 #[repr(C, packed)]
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct BgpHdr {
     /// Marker: MUST be all ones (RFC 4271).
