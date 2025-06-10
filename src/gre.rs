@@ -1,3 +1,5 @@
+use crate::eth::EtherType;
+
 /// Represents a Generic Routing Encapsulation (GRE) header as defined in RFC 2784.
 ///
 /// GRE is a tunneling protocol that encapsulates a wide variety of network layer
@@ -9,8 +11,31 @@
 /// used to determine the actual length of the header at runtime (4 or 8 bytes).
 ///
 /// For more details, see RFC 2784: https://www.rfc-editor.org/rfc/rfc2784.html
+/// 
+/// /// A struct containing the optional checksum and reserved fields.
+
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
+pub struct GreOptionalFields {
+    /// This field is only valid if the Checksum Present flag is set.
+    pub check: [u8; 2],
+    /// A reserved field for future use, which MUST be transmitted as zero (optional).
+    /// This field is only present if the Checksum Present flag is set.
+    pub _reserved1: [u8; 2],
+}
+
+/// A union representing the 4 bytes that can either be optional GRE fields
+/// or the start of the payload data.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union GreDataUnion {
+    /// The interpretation when checksum_present() is true.
+    fields: GreOptionalFields,
+    /// The interpretation when checksum_present() is false.
+    payload_start: [u8; 4],
+}
+#[repr(C, packed)]
+#[derive(Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct GreHdr {
     /// A 16-bit field containing the Checksum Present flag (1 bit),
@@ -18,16 +43,15 @@ pub struct GreHdr {
     /// In a compliant packet, Reserved0 and Version MUST be 0.
     pub flag_reserved0_ver: [u8; 2],
     /// The protocol type of the encapsulated payload packet.
-    pub protocol_type: [u8; 2],
-    /// The checksum for the GRE header and payload (optional).
+    pub protocol_type: EtherType,
     /// This field is only valid if the Checksum Present flag is set.
-    pub checksum: [u8; 2],
-    /// A reserved field for future use, which must be transmitted as zero (optional).
-    /// This field is only present if the Checksum Present flag is set.
-    pub reserved1: [u8; 2],
+    pub data: GreDataUnion,
 }
 
 impl GreHdr {
+
+    pub const LEN: usize = size_of::<GreHdr>();
+    
     /// Checks if the Checksum Present bit (C) is set.
     #[inline]
     pub fn checksum_present(&self) -> bool {
@@ -80,43 +104,60 @@ impl GreHdr {
 
     /// Gets the Protocol Type as a big-endian 2-byte array.
     #[inline]
-    pub fn get_protocol_type(&self) -> [u8; 2] {
+    pub fn get_protocol_type(&self) -> EtherType {
         self.protocol_type
     }
 
     /// Sets the Protocol Type from a big-endian 2-byte array.
     #[inline]
-    pub fn set_protocol_type(&mut self, protocol_type: [u8; 2]) {
+    pub fn set_protocol_type(&mut self, protocol_type: EtherType) {
         self.protocol_type = protocol_type;
     }
 
     /// Gets the checksum as a big-endian 2-byte array.
     #[inline]
-    pub fn get_checksum(&self) -> [u8; 2] {
-        self.checksum
+    pub fn get_checksum(&self) -> Option<[u8; 2]> {
+        if self.checksum_present() {
+            // SAFETY: Unsafe access to check field made safe by the guard above.
+            Some(unsafe { self.data.fields.check })
+        } else {
+            None
+        }
     }
 
     /// Sets the checksum from a big-endian 2-byte array.
     #[inline]
     pub fn set_checksum(&mut self, checksum: [u8; 2]) {
-        self.checksum = checksum;
+        self.set_checksum_present(true);
+        // SAFETY: Unsafe set to check field made safe by the set above.
+        unsafe {
+            self.data.fields.check = checksum;
+        }
     }
     
     /// Gets the reserved1 as a big-endian 2-byte array.
     #[inline]
-    pub fn get_reserved1(&self) -> [u8; 2] {
-        self.reserved1
+    pub fn get_reserved1(&self) -> Option<[u8; 2]> {
+        if self.checksum_present() {
+            // SAFETY: Unsafe access to _reserved1 field made safe by the guard above.
+            Some(unsafe { self.data.fields._reserved1 })
+        } else {
+            None
+        }
     }
     
     /// Sets the reserved1 from a big-endian 2-byte array.
     #[inline]
     pub fn set_reserved1(&mut self, reserved1: [u8; 2]) {
-        self.reserved1 = reserved1;
+        self.set_checksum_present(true);
+        unsafe {
+            self.data.fields._reserved1 = reserved1;
+        }
     }
 
     /// Returns the total length of the GRE header based on the RFC specification.
     #[inline]
-    pub fn header_len(&self) -> usize {
+    pub fn total_hdr_len(&self) -> usize {
         if self.checksum_present() {
             8
         } else {
@@ -180,7 +221,6 @@ mod tests {
 
         {
             let gre_header = unsafe { gre_from_bytes_mut(&mut gre_bytes) };
-            // gre_header.flag_reserved0_ver = u16::to_be(0x8000);
             gre_header.flag_reserved0_ver = [0x80, 0x00];
             gre_header.set_version(3);
         }
@@ -191,7 +231,7 @@ mod tests {
     fn test_get_protocol_type() {
         let received_bytes: [u8; 8] = [0,0, 0x86, 0xDD, 0,0,0,0];
         let received_header = unsafe { gre_from_bytes(&received_bytes) };
-        assert_eq!(received_header.get_protocol_type(), [0x86, 0xDD]);
+        assert_eq!(received_header.get_protocol_type(), EtherType::Ipv6);
     }
 
     #[test]
@@ -199,15 +239,15 @@ mod tests {
         let mut gre_bytes = [0u8; 8];
         let gre_header = unsafe { gre_from_bytes_mut(&mut gre_bytes) };
 
-        gre_header.set_protocol_type([0x08, 0x00]);
-        assert_eq!([gre_bytes[2], gre_bytes[3]], [0x08, 0x00]);
+        gre_header.set_protocol_type(EtherType::Arp);
+        assert_eq!([gre_bytes[2], gre_bytes[3]], [0x08, 0x06]);
     }
 
     #[test]
     fn test_get_checksum() {
-        let received_bytes: [u8; 8] = [0,0,0,0, 0xFE, 0xDC, 0,0];
+        let received_bytes: [u8; 8] = [0x80, 0x00,0,0, 0xFE, 0xDC, 0,0];
         let received_header = unsafe { gre_from_bytes(&received_bytes) };
-        assert_eq!(received_header.get_checksum(), [0xFE, 0xDC]);
+        assert_eq!(received_header.get_checksum(), Some([0xFE, 0xDC]));
     }
 
     #[test]
@@ -221,9 +261,9 @@ mod tests {
 
     #[test]
     fn test_get_reserved1() {
-        let received_bytes: [u8; 8] = [0,0,0,0,0,0, 0xBE, 0xEF];
+        let received_bytes: [u8; 8] = [0x80, 0x00,0,0,0,0, 0xBE, 0xEF];
         let received_header = unsafe { gre_from_bytes(&received_bytes) };
-        assert_eq!(received_header.get_reserved1(), [0xBE, 0xEF]);
+        assert_eq!(received_header.get_reserved1(), Some([0xBE, 0xEF]));
     }
 
     #[test]
@@ -241,9 +281,9 @@ mod tests {
         let gre_header = unsafe { gre_from_bytes_mut(&mut gre_bytes) };
 
         gre_header.set_checksum_present(false);
-        assert_eq!(gre_header.header_len(), 4);
+        assert_eq!(gre_header.total_hdr_len(), 4);
 
         gre_header.set_checksum_present(true);
-        assert_eq!(gre_header.header_len(), 8);
+        assert_eq!(gre_header.total_hdr_len(), 8);
     }
 }
