@@ -180,39 +180,439 @@ impl OpenMsgLayout {
     }
 }
 
-/// Represents the initial fixed-size part of a BGP UPDATE message payload.
+/// Represents the fixed-size layout at the beginning of a BGP UPDATE message.
 /// (RFC 4271, Section 4.3).
 ///
 /// This structure is `#[repr(C, packed)]` to ensure it matches the on-wire format.
-/// Note that an UPDATE message has more fields following this initial part.
 #[repr(C, packed)]
-#[derive(Debug, Copy, Clone, Default)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[derive(Debug, Copy, Clone)]
 pub struct UpdateInitialMsgLayout {
     /// The length of the Withdrawn Routes field in octets, in network byte order.
-    pub withdrawn_routes_len: [u8; 2],
+    pub withdrawn_routes_length: [u8; 2],
 }
 
 impl UpdateInitialMsgLayout {
-    /// The length of the initially fixed part of a BGP UPDATE message in bytes.
+    /// The length of the fixed part of a BGP UPDATE message in bytes.
     pub const LEN: usize = mem::size_of::<Self>();
 
-    /// Gets the length of the Withdrawn Routes field in octets.
+    /// Gets the length of the Withdrawn Routes field.
     ///
     /// # Returns
-    /// The `u16` length, converted from network byte order.
-    #[inline]
-    pub fn withdrawn_routes_len(&self) -> u16 {
-        u16::from_be_bytes(self.withdrawn_routes_len)
+    /// The `u16` length of the Withdrawn Routes field, converted from network byte order.
+    pub fn get_withdrawn_routes_length(&self) -> u16 {
+        u16::from_be_bytes(self.withdrawn_routes_length)
     }
 
-    /// Sets the length of the Withdrawn Routes field in octets.
+    /// Sets the length of the Withdrawn Routes field.
     ///
     /// # Parameters
     /// * `len`: The `u16` length to set (will be converted to network byte order).
-    #[inline]
-    pub fn set_withdrawn_routes_len(&mut self, len: u16) {
-        self.withdrawn_routes_len = len.to_be_bytes();
+    pub fn set_withdrawn_routes_length(&mut self, len: u16) {
+        self.withdrawn_routes_length = len.to_be_bytes();
+    }
+}
+
+/// Creates a new `UpdateInitialMsgLayout` with a `withdrawn_routes_length` of zero.
+impl Default for UpdateInitialMsgLayout {
+    fn default() -> Self {
+        Self {
+            withdrawn_routes_length: [0, 0],
+        }
+    }
+}
+
+/// Represents a single BGP Withdrawn Route, consisting of a prefix length and the prefix itself.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct WithdrawnRoute<'a> {
+    /// The length of the IP address prefix in bits.
+    pub length_bits: u8,
+    /// A slice pointing to the raw bytes of the IP address prefix.
+    pub prefix: &'a [u8],
+}
+
+/// A view over a single Path Attribute's data (header + value).
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct PathAttributeView<'a> {
+    pub flags: u8,
+    pub type_code: u8,
+    pub value: &'a [u8],
+}
+
+impl<'a> PathAttributeView<'a> {
+    /// Checks if the "Optional" bit is set.
+    pub fn is_optional(&self) -> bool { (self.flags & 0x80) != 0 }
+    /// Checks if the "Transitive" bit is set.
+    pub fn is_transitive(&self) -> bool { (self.flags & 0x40) != 0 }
+    /// Checks if the "Partial" bit is set.
+    pub fn is_partial(&self) -> bool { (self.flags & 0x20) != 0 }
+    /// Checks if the "Extended Length" bit is set, indicating the length field is 2 bytes.
+    pub fn is_extended_length(&self) -> bool { (self.flags & 0x10) != 0 }
+}
+
+/// A view providing safe, zero-copy access to the components of a BGP UPDATE message.
+#[derive(Debug, Copy, Clone)]
+pub struct UpdateMessageView<'a> {
+    buffer: &'a [u8],
+}
+
+impl<'a> UpdateMessageView<'a> {
+    /// Creates a new view from the full BGP UPDATE message payload.
+    ///
+    /// # Parameters
+    /// * `buffer`: A slice representing the UPDATE message payload (excluding the common BGP header).
+    ///
+    /// # Returns
+    /// `Some(Self)` if the buffer is large enough for the initial fixed-size layout, `None` otherwise.
+    pub fn new(buffer: &'a [u8]) -> Option<Self> {
+        if buffer.len() < UpdateInitialMsgLayout::LEN {
+            return None;
+        }
+        Some(Self { buffer })
+    }
+
+    /// Provides safe access to the initial fixed-layout portion of the header.
+    fn initial_layout(&self) -> &UpdateInitialMsgLayout {
+        unsafe { &*(self.buffer.as_ptr() as *const UpdateInitialMsgLayout) }
+    }
+
+    /// Returns an iterator over the Withdrawn Routes in the message.
+    ///
+    /// The iterator will parse the Withdrawn Routes field based on the length specified
+    /// in the UPDATE message header. It handles cases where the specified length
+    /// exceeds the buffer by iterating only over the available bytes.
+    ///
+    /// # Returns
+    /// A `WithdrawnRoutesIterator` to traverse the withdrawn routes.
+    pub fn withdrawn_routes_iter(&self) -> WithdrawnRoutesIterator<'a> {
+        let len = self.initial_layout().get_withdrawn_routes_length() as usize;
+        let start = UpdateInitialMsgLayout::LEN;
+        let end = start.saturating_add(len);
+        let buffer = if end > self.buffer.len() {
+            &self.buffer[start..self.buffer.len()]
+        } else {
+            &self.buffer[start..end]
+        };
+        WithdrawnRoutesIterator::new(buffer)
+    }
+
+    /// Returns an iterator over the Path Attributes in the message.
+    ///
+    /// # Returns
+    /// `Some(PathAttributeIterator)` if the message contains a valid Path Attributes field.
+    /// Returns `None` if the message is too short to contain the path attribute length,
+    /// or if the path attributes block is malformed or has a length of zero.
+    pub fn path_attributes_iter(&self) -> Option<PathAttributeIterator<'a>> {
+        let withdrawn_len = self.initial_layout().get_withdrawn_routes_length() as usize;
+        let path_attr_len_offset = UpdateInitialMsgLayout::LEN.saturating_add(withdrawn_len);
+
+        if self.buffer.len() < path_attr_len_offset.saturating_add(2) { return None; }
+
+        let len_bytes = [self.buffer[path_attr_len_offset], self.buffer[path_attr_len_offset + 1]];
+        let path_attr_block_len = u16::from_be_bytes(len_bytes) as usize;
+
+        if path_attr_block_len == 0 { return None; }
+
+        let path_attr_start = path_attr_len_offset + 2;
+        let path_attr_end = path_attr_start.saturating_add(path_attr_block_len);
+
+        if path_attr_end > self.buffer.len() { return None; }
+
+        Some(PathAttributeIterator::new(&self.buffer[path_attr_start..path_attr_end]))
+    }
+
+    /// Returns a slice containing the Network Layer Reachability Information (NLRI).
+    ///
+    /// # Returns
+    /// `Some(&'a [u8])` containing the NLRI data if present.
+    /// Returns `None` if the message is malformed, or if Total Path Attribute Length is 0,
+    /// as the NLRI field follows the Path Attributes.
+    pub fn nlri(&self) -> Option<&'a [u8]> {
+        let withdrawn_len = self.initial_layout().get_withdrawn_routes_length() as usize;
+        let path_attr_len_offset = UpdateInitialMsgLayout::LEN.saturating_add(withdrawn_len);
+
+        if self.buffer.len() < path_attr_len_offset.saturating_add(2) { return None; }
+
+        let len_bytes = [self.buffer[path_attr_len_offset], self.buffer[path_attr_len_offset + 1]];
+        let path_attr_block_len = u16::from_be_bytes(len_bytes) as usize;
+
+        if path_attr_block_len == 0 { return None; }
+
+        let nlri_start = path_attr_len_offset + 2 + path_attr_block_len;
+        if nlri_start > self.buffer.len() { return None; }
+
+        Some(&self.buffer[nlri_start..])
+    }
+}
+
+/// An iterator that parses a block of Withdrawn Route `(Length, Prefix)` tuples.
+#[derive(Debug, Clone)]
+pub struct WithdrawnRoutesIterator<'a> {
+    buffer: &'a [u8],
+}
+
+impl<'a> WithdrawnRoutesIterator<'a> {
+    /// Creates a new iterator for a Withdrawn Routes data block.
+    ///
+    /// # Parameters
+    /// * `buffer`: A slice containing the raw bytes of the Withdrawn Routes field.
+    pub fn new(buffer: &'a [u8]) -> Self { Self { buffer } }
+}
+
+impl<'a> Iterator for WithdrawnRoutesIterator<'a> {
+    type Item = WithdrawnRoute<'a>;
+
+    /// Parses and returns the next withdrawn route from the buffer.
+    ///
+    /// Each call to `next` attempts to read a length byte, calculate the
+    /// corresponding prefix byte length, and extract the route.
+    ///
+    /// # Returns
+    /// `Some(WithdrawnRoute)` if a complete route is parsed successfully.
+    /// `None` if the remaining buffer is empty or too small to contain a valid route.
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.buffer.len() < 1 { return None; }
+        let length_bits = self.buffer[0];
+        let prefix_len_bytes = ((length_bits + 7) / 8) as usize;
+        let total_record_len = 1 + prefix_len_bytes;
+        if self.buffer.len() < total_record_len {
+            self.buffer = &[];
+            return None;
+        }
+        let prefix = &self.buffer[1..total_record_len];
+        self.buffer = &self.buffer[total_record_len..];
+        Some(WithdrawnRoute { length_bits, prefix })
+    }
+}
+
+/// An iterator that parses a sequence of BGP Path Attributes.
+#[derive(Debug, Clone)]
+pub struct PathAttributeIterator<'a> {
+    buffer: &'a [u8],
+}
+
+impl<'a> PathAttributeIterator<'a> {
+    /// Creates a new iterator for a Path Attributes data block.
+    ///
+    /// # Parameters
+    /// * `buffer`: A slice containing the raw bytes of the Total Path Attributes field.
+    pub fn new(buffer: &'a [u8]) -> Self { Self { buffer } }
+}
+
+impl<'a> Iterator for PathAttributeIterator<'a> {
+    type Item = PathAttributeView<'a>;
+
+    /// Parses and returns the next path attribute from the buffer.
+    ///
+    /// Handles both standard and extended-length attributes based on the attribute flags.
+    ///
+    /// # Returns
+    /// `Some(PathAttributeView)` if a complete attribute is parsed successfully.
+    /// `None` if the remaining buffer is empty or too small for the next attribute's header or value.
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.buffer.len() < 2 { return None; }
+
+        let flags = self.buffer[0];
+        let type_code = self.buffer[1];
+        let is_extended = (flags & 0x10) != 0;
+
+        let (len, data_offset) = if is_extended {
+            if self.buffer.len() < 4 { return None; }
+            (u16::from_be_bytes([self.buffer[2], self.buffer[3]]) as usize, 4)
+        } else {
+            if self.buffer.len() < 3 { return None; }
+            (self.buffer[2] as usize, 3)
+        };
+
+        let total_attr_len = data_offset + len;
+        if self.buffer.len() < total_attr_len {
+            self.buffer = &[];
+            return None;
+        }
+
+        let value = &self.buffer[data_offset..total_attr_len];
+        self.buffer = &self.buffer[total_attr_len..];
+
+        Some(PathAttributeView { flags, type_code, value })
+    }
+}
+
+/// A generic writer for serializing a sequence of (Length, Prefix) tuples.
+///
+/// This is used for writing both Withdrawn Routes and NLRI data, which share the same format.
+pub struct PrefixWriter<'a> {
+    buffer: &'a mut [u8],
+    cursor: usize,
+}
+
+impl<'a> PrefixWriter<'a> {
+    /// Creates a new writer for a prefix data block.
+    ///
+    /// # Parameters
+    /// * `buffer`: The mutable slice where prefix data will be written.
+    pub fn new(buffer: &'a mut [u8]) -> Self {
+        Self { buffer, cursor: 0 }
+    }
+
+    /// Appends a new prefix to the buffer.
+    ///
+    /// # Parameters
+    /// * `length_bits`: The length of the prefix in bits.
+    /// * `prefix`: A slice containing the raw bytes of the prefix.
+    ///
+    /// # Returns
+    /// `Ok(())` on success.
+    /// `Err(&'static str)` if the provided prefix byte length doesn't match its
+    /// bit-length, or if the buffer is too small.
+    pub fn push(&mut self, length_bits: u8, prefix: &[u8]) -> Result<(), &'static str> {
+        let prefix_len_bytes = ((length_bits + 7) / 8) as usize;
+        if prefix.len() != prefix_len_bytes {
+            return Err("Prefix byte length does not match its bit-length");
+        }
+
+        let record_len = 1 + prefix_len_bytes;
+        if self.cursor + record_len > self.buffer.len() {
+            return Err("Buffer too small for new prefix");
+        }
+
+        self.buffer[self.cursor] = length_bits;
+        self.buffer[self.cursor + 1..self.cursor + record_len].copy_from_slice(prefix);
+        self.cursor += record_len;
+        Ok(())
+    }
+}
+
+/// A writer for serializing a sequence of BGP Path Attributes.
+pub struct PathAttributeWriter<'a> {
+    buffer: &'a mut [u8],
+    cursor: usize,
+}
+
+impl<'a> PathAttributeWriter<'a> {
+    /// Creates a new writer for a path attribute data block.
+    ///
+    /// # Parameters
+    /// * `buffer`: The mutable slice where path attribute data will be written.
+    pub fn new(buffer: &'a mut [u8]) -> Self {
+        Self { buffer, cursor: 0 }
+    }
+
+    /// Appends a new path attribute to the buffer.
+    ///
+    /// Automatically handles setting the "Extended Length" flag if the `value`
+    /// is longer than 255 bytes.
+    ///
+    /// # Parameters
+    /// * `flags`: The attribute flags (e.g., Optional, Transitive).
+    /// * `type_code`: The attribute type code.
+    /// * `value`: A slice containing the attribute's value.
+    ///
+    /// # Returns
+    /// `Ok(())` on success.
+    /// `Err(&'static str)` if the buffer is too small for the new attribute.
+    pub fn push(&mut self, flags: u8, type_code: u8, value: &[u8]) -> Result<(), &'static str> {
+        let is_extended = value.len() > 255;
+        let flags = if is_extended { flags | 0x10 } else { flags };
+
+        let len_field_size = if is_extended { 2 } else { 1 };
+        let header_size = 2 + len_field_size;
+        let total_attr_len = header_size + value.len();
+
+        if self.cursor + total_attr_len > self.buffer.len() {
+            return Err("Buffer too small for new path attribute");
+        }
+
+        let current = &mut self.buffer[self.cursor..];
+        current[0] = flags;
+        current[1] = type_code;
+
+        if is_extended {
+            current[2..4].copy_from_slice(&(value.len() as u16).to_be_bytes());
+        } else {
+            current[2] = value.len() as u8;
+        }
+
+        current[header_size..total_attr_len].copy_from_slice(value);
+        self.cursor += total_attr_len;
+        Ok(())
+    }
+}
+
+/// A writer that structures a mutable buffer to be filled with BGP UPDATE message data.
+pub struct UpdateMessageWriter<'a> {
+    buffer: &'a mut [u8],
+}
+
+impl<'a> UpdateMessageWriter<'a> {
+    /// Creates a new writer for a BGP UPDATE message from a mutable byte slice.
+    ///
+    /// The buffer should represent the entire UPDATE message payload (excluding the common BGP header).
+    ///
+    /// # Parameters
+    /// * `buffer`: A mutable slice that will contain the UPDATE message payload.
+    ///
+    /// # Returns
+    /// `Some(Self)` if the buffer is at least 4 bytes long (the minimum for length fields),
+    /// otherwise `None`.
+    pub fn new(buffer: &'a mut [u8]) -> Option<Self> {
+        if buffer.len() < 4 { // Minimal length for withdrawn_len (2) + path_attr_len (2)
+            return None;
+        }
+        Some(Self { buffer })
+    }
+
+    /// Writes the length fields to structure the buffer and returns sub-writers for each section.
+    ///
+    /// This method partitions the underlying buffer into three distinct sections for
+    /// writing Withdrawn Routes, Path Attributes, and NLRI. It writes the length
+    /// fields for the first two sections into the buffer before returning the writers.
+    ///
+    /// # Parameters
+    /// * `withdrawn_len`: The total length in bytes of the Withdrawn Routes section.
+    /// * `path_attr_len`: The total length in bytes of the Path Attributes section.
+    ///
+    /// # Returns
+    /// On success, a tuple `(PrefixWriter, PathAttributeWriter, PrefixWriter)` for the
+    /// Withdrawn Routes, Path Attributes, and NLRI sections, respectively.
+    ///
+    /// # Errors
+    /// Returns `Err(&'static str)` if the sum of the specified lengths exceeds the buffer's capacity.
+    pub fn structure(
+        &mut self,
+        withdrawn_len: u16,
+        path_attr_len: u16,
+    ) -> Result<
+        (
+            PrefixWriter,
+            PathAttributeWriter,
+            PrefixWriter,
+        ),
+        &'static str,
+    > {
+        let withdrawn_len_usize = withdrawn_len as usize;
+        let path_attr_len_usize = path_attr_len as usize;
+
+        // Required length: 2 bytes for withdrawn_len, the withdrawn data,
+        // 2 bytes for path_attr_len, and the path_attr data.
+        let required_len = 2 + withdrawn_len_usize + 2 + path_attr_len_usize;
+        if self.buffer.len() < required_len {
+            return Err("Provided lengths exceed buffer capacity");
+        }
+
+        // Write Withdrawn Routes Length
+        self.buffer[0..2].copy_from_slice(&withdrawn_len.to_be_bytes());
+        // Calculate and write Total Path Attributes Length
+        let pa_len_offset = 2 + withdrawn_len_usize;
+        self.buffer[pa_len_offset..pa_len_offset + 2].copy_from_slice(&path_attr_len.to_be_bytes());
+
+        // Split the buffer to create writers for each section
+        let (wr_buf, rest) = self.buffer[2..].split_at_mut(withdrawn_len_usize);
+        let (pa_buf, nlri_buf) = rest[2..].split_at_mut(path_attr_len_usize);
+
+        Ok((
+            PrefixWriter::new(wr_buf),
+            PathAttributeWriter::new(pa_buf),
+            PrefixWriter::new(nlri_buf),
+        ))
     }
 }
 
@@ -604,7 +1004,7 @@ impl BgpHdr {
             return None;
         }
         // Safety: msg_type is checked to be Update, so accessing self.data.update is valid.
-        let wrl_val = u16::from_be_bytes(unsafe { self.data.update.withdrawn_routes_len });
+        let wrl_val = u16::from_be_bytes(unsafe { self.data.update.withdrawn_routes_length });
         let common_hdr_size = 19;
         let tpal_offset = common_hdr_size + UpdateInitialMsgLayout::LEN + (wrl_val as usize);
         if message_bytes.len() < tpal_offset + 2 {
@@ -638,9 +1038,9 @@ impl BgpHdr {
             return Err(BgpError::IncorrectMessageType(self.msg_type));
         }
         // Safety: msg_type is checked to be Update, so accessing self.data.update to read
-        // withdrawn_routes_len is valid within the context of this BgpHdr struct.
+        // withdrawn_routes_length is valid within the context of this BgpHdr struct.
         // The safety of message_bytes slice access is handled by length checks.
-        let wrl_val = u16::from_be_bytes(unsafe { self.data.update.withdrawn_routes_len });
+        let wrl_val = u16::from_be_bytes(unsafe { self.data.update.withdrawn_routes_length });
         let common_hdr_size = 19;
         let tpal_offset = common_hdr_size + UpdateInitialMsgLayout::LEN + (wrl_val as usize);
         if message_bytes.len() < tpal_offset + 2 {
@@ -814,7 +1214,7 @@ impl BgpHdr {
     #[inline]
     pub unsafe fn update_total_path_attr_len_unchecked(&self, message_bytes: &[u8]) -> Option<u16> {
         // Safety: Caller ensures msg_type is Update, so accessing self.data.update is permissible.
-        let wrl_val = u16::from_be_bytes(self.data.update.withdrawn_routes_len);
+        let wrl_val = u16::from_be_bytes(self.data.update.withdrawn_routes_length);
         let common_hdr_size = 19;
         let tpal_offset = common_hdr_size + UpdateInitialMsgLayout::LEN + (wrl_val as usize);
         if message_bytes.len() < tpal_offset + 2 {
@@ -848,7 +1248,7 @@ impl BgpHdr {
         tpal_val: u16,
     ) {
         // Safety: Caller ensures msg_type is Update.
-        let wrl_val = u16::from_be_bytes(self.data.update.withdrawn_routes_len);
+        let wrl_val = u16::from_be_bytes(self.data.update.withdrawn_routes_length);
         let common_hdr_size = 19;
         let tpal_offset = common_hdr_size + UpdateInitialMsgLayout::LEN + (wrl_val as usize);
         let bytes_to_write = tpal_val.to_be_bytes();
@@ -1115,7 +1515,7 @@ mod tests {
         assert_eq!(open_payload_unchecked.version(), 4);
         let update_payload = hdr.as_update().unwrap();
         assert_eq!(
-            update_payload.withdrawn_routes_len(),
+            update_payload.get_withdrawn_routes_length(),
             u16::from_be_bytes([4, 253])
         );
     }
@@ -1126,11 +1526,11 @@ mod tests {
         let wrl_val: u16 = 4;
         {
             let update_payload = hdr.as_update_mut().unwrap();
-            update_payload.set_withdrawn_routes_len(wrl_val);
+            update_payload.set_withdrawn_routes_length(wrl_val);
         }
-        assert_eq!(hdr.as_update().unwrap().withdrawn_routes_len(), wrl_val);
+        assert_eq!(hdr.as_update().unwrap().get_withdrawn_routes_length(), wrl_val);
         assert_eq!(
-            unsafe { hdr.as_update_unchecked().withdrawn_routes_len() },
+            unsafe { hdr.as_update_unchecked().get_withdrawn_routes_length() },
             wrl_val
         );
         const BUFFER_SIZE: usize = 64;
@@ -1145,7 +1545,7 @@ mod tests {
         msg_bytes_buffer[current_offset] = hdr.msg_type_raw();
         current_offset += 1;
         msg_bytes_buffer[current_offset..current_offset + UpdateInitialMsgLayout::LEN]
-            .copy_from_slice(&unsafe { &hdr.data.update }.withdrawn_routes_len);
+            .copy_from_slice(&unsafe { &hdr.data.update }.withdrawn_routes_length);
         current_offset += UpdateInitialMsgLayout::LEN;
         let withdrawn_data = [0xAAu8; 4];
         msg_bytes_buffer[current_offset..current_offset + withdrawn_data.len()]
@@ -1330,11 +1730,11 @@ mod tests {
         hdr_update
             .as_update_mut()
             .unwrap()
-            .set_withdrawn_routes_len(0);
+            .set_withdrawn_routes_length(0);
         assert!(custom_debug_contains(&hdr_update, "msg_type: Update"));
         assert!(custom_debug_contains(
             &hdr_update,
-            "UpdateInitialMsgLayout { withdrawn_routes_len: [0, 0] }"
+            "UpdateInitialMsgLayout { withdrawn_routes_length: [0, 0] }"
         ));
         assert!(custom_debug_contains(
             &hdr_update,
