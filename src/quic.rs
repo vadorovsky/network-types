@@ -5,26 +5,23 @@
 //! Designed for use inside eBPF (`aya`) programs → `#![no_std]`,
 //! fixed‑capacity buffers, no heap, packed layouts.
 
-#![cfg_attr(not(test), no_std)]
-
 use core::{cmp, fmt, hash, ptr};
 
 pub const QUIC_MAX_CID_LEN: usize = 20;
-
-const HEADER_FORM_BIT: u8 = 0x80; // Bit 7: 1 for Long Header, 0 for Short Header
-const FIXED_BIT_MASK: u8 = 0x40; // Bit 6: Must be 1 in QUIC v1 (except Version Negotiation)
-
-const LONG_PACKET_TYPE_MASK: u8 = 0x30; // Bits 5-4: Packet Type
+const HEADER_FORM_BIT: u8 = 0x80;
+const FIXED_BIT_MASK: u8 = 0x40;
+const LONG_PACKET_TYPE_MASK: u8 = 0x30;
 const LONG_PACKET_TYPE_SHIFT: u8 = 4;
-const RESERVED_BITS_LONG_MASK: u8 = 0x0C; // Bits 3-2: Reserved (Type-Specific in some cases like Retry)
+const RESERVED_BITS_LONG_MASK: u8 = 0x0C;
 const RESERVED_BITS_LONG_SHIFT: u8 = 2;
-
-const SHORT_SPIN_BIT_MASK: u8 = 0x20; // Bit 5: Spin Bit
-const SHORT_RESERVED_BITS_MASK: u8 = 0x18; // Bits 4-3: Reserved
+const SHORT_SPIN_BIT_MASK: u8 = 0x20;
+const SHORT_RESERVED_BITS_MASK: u8 = 0x18;
 const SHORT_RESERVED_BITS_SHIFT: u8 = 3;
-const SHORT_KEY_PHASE_BIT_MASK: u8 = 0x04; // Bit 2: Key Phase
+const SHORT_KEY_PHASE_BIT_MASK: u8 = 0x04;
+const PN_LENGTH_BITS_MASK: u8 = 0x03;
 
-const PN_LENGTH_BITS_MASK: u8 = 0x03; // Bits 1-0: Encoded Packet Number Length (actual_length - 1)
+#[cfg(feature = "serde")]
+use serde_bytes::{ByteBuf, Bytes};
 
 /// Error type for safe getter/setter operations on `QuicHdr`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -44,6 +41,49 @@ impl fmt::Display for QuicHdrError {
             QuicHdrError::InvalidLength => {
                 write!(f, "Invalid length provided for a QUIC header field")
             }
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+mod cid_serde_helpers {
+    use core::fmt;
+    use serde::de::Expected;
+
+    pub struct ExpectedCidBytesInfo {
+        pub len: u8,
+    }
+    impl fmt::Display for ExpectedCidBytesInfo {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "CID bytes for explicit length {}", self.len)
+        }
+    }
+
+    impl Expected for ExpectedCidBytesInfo {
+        fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fmt::Display::fmt(self, formatter)
+        }
+    }
+
+    pub struct LengthExceedsMaxError {
+        pub value: usize,
+        pub max: usize,
+        pub field_name: &'static str,
+    }
+
+    impl fmt::Display for LengthExceedsMaxError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "{} {} exceeds max {}",
+                self.field_name, self.value, self.max
+            )
+        }
+    }
+
+    impl Expected for LengthExceedsMaxError {
+        fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fmt::Display::fmt(self, formatter)
         }
     }
 }
@@ -121,9 +161,8 @@ macro_rules! impl_cid_common {
         }
 
         impl $t {
-            
             pub const LEN: usize = core::mem::size_of::<Self>();
-            
+
             /// Construct a new (empty) ID – all bytes zero, length 0.
             ///
             /// # Returns
@@ -237,33 +276,20 @@ macro_rules! impl_cid_common {
         }
 
         #[cfg(feature = "serde")]
-        mod serde_cid_impl {
-            use super::*;
+        const _: () = {
+            // Create a new scope for each expansion
             use serde::{
                 de::{self, Visitor},
                 ser::SerializeStruct,
                 Deserializer, Serializer,
             };
-
-            impl serde::Serialize for $t {
-                fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-                where
-                    S: Serializer,
-                {
-                    if $with_len_on_wire {
-                        let mut st = serializer.serialize_struct(stringify!($t), 2)?;
-                        st.serialize_field("len", &self.len)?;
-                        st.serialize_field("bytes", &serde_bytes::Bytes::new(self.as_slice()))?;
-                        st.end()
-                    } else {
-                        serializer.serialize_bytes(self.as_slice())
-                    }
-                }
-            }
+            // Assumes `use serde_bytes::{ByteBuf, Bytes};` is at the top of the file.
+            // Assumes helper structs are in `crate::quic::cid_serde_helpers`
 
             struct CidVisitor;
             impl<'de> Visitor<'de> for CidVisitor {
                 type Value = $t;
+
                 fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                     if $with_len_on_wire {
                         write!(f, "length-prefixed QUIC Connection-ID (len, bytes)")
@@ -279,26 +305,29 @@ macro_rules! impl_cid_common {
                     let len: u8 = seq.next_element()?.ok_or_else(|| {
                         de::Error::invalid_length(0, &"Missing CID len in sequence")
                     })?;
-                    let bytes_buf: serde_bytes::ByteBuf = seq.next_element()?.ok_or_else(|| {
+                    let bytes_buf: ByteBuf = seq.next_element()?.ok_or_else(|| {
                         de::Error::invalid_length(1, &"Missing CID bytes in sequence")
                     })?;
 
                     if bytes_buf.len() != len as usize {
                         return Err(de::Error::invalid_value(
                             de::Unexpected::Bytes(bytes_buf.as_ref()),
-                            &format!("CID bytes for explicit length {}", len).as_ref(),
+                            &crate::quic::cid_serde_helpers::ExpectedCidBytesInfo { len },
                         ));
                     }
                     if len > QUIC_MAX_CID_LEN as u8 {
                         return Err(de::Error::invalid_length(
                             len as usize,
-                            &format!("CID length {} exceeds max {}", len, QUIC_MAX_CID_LEN)
-                                .as_ref(),
+                            &crate::quic::cid_serde_helpers::LengthExceedsMaxError {
+                                value: len as usize,
+                                max: QUIC_MAX_CID_LEN,
+                                field_name: "CID length",
+                            },
                         ));
                     }
                     let mut id = $t::new();
                     id.set(bytes_buf.as_ref());
-                    id.len = len; // Ensure `len` is set correctly after `set`
+                    id.len = len;
                     Ok(id)
                 }
 
@@ -309,13 +338,32 @@ macro_rules! impl_cid_common {
                     if v.len() > QUIC_MAX_CID_LEN {
                         return Err(de::Error::invalid_length(
                             v.len(),
-                            &format!("CID length {} exceeds max {}", v.len(), QUIC_MAX_CID_LEN)
-                                .as_ref(),
+                            &crate::quic::cid_serde_helpers::LengthExceedsMaxError {
+                                value: v.len(),
+                                max: QUIC_MAX_CID_LEN,
+                                field_name: "CID length",
+                            },
                         ));
                     }
                     let mut id = $t::new();
                     id.set(v);
                     Ok(id)
+                }
+            }
+
+            impl serde::Serialize for $t {
+                fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+                where
+                    S: Serializer,
+                {
+                    if $with_len_on_wire {
+                        let mut st = serializer.serialize_struct(stringify!($t), 2)?;
+                        st.serialize_field("len", &self.len)?;
+                        st.serialize_field("bytes", &Bytes::new(self.as_slice()))?;
+                        st.end()
+                    } else {
+                        serializer.serialize_bytes(self.as_slice())
+                    }
                 }
             }
 
@@ -325,15 +373,13 @@ macro_rules! impl_cid_common {
                     D: Deserializer<'de>,
                 {
                     if $with_len_on_wire {
-                        // For length-prefixed, expect a sequence of (len, bytes)
                         deserializer.deserialize_tuple(2, CidVisitor)
                     } else {
-                        // For raw bytes, expect just the bytes
                         deserializer.deserialize_bytes(CidVisitor)
                     }
                 }
             }
-        }
+        };
     };
 }
 
@@ -393,9 +439,8 @@ pub struct QuicHdrLong {
     pub src: QuicSrcConnLong,
 }
 impl QuicHdrLong {
-
     pub const LEN: usize = core::mem::size_of::<Self>();
-    
+
     /// The minimum length of a Long Header on the wire, consisting of:
     /// 1 (First Byte, part of `QuicHdr`) + 4 (Version) + 1 (DCID Len Byte) + 1 (SCID Len Byte) = 7 bytes.
     /// This does not include any actual CID data bytes.
@@ -473,11 +518,10 @@ pub struct QuicHdrShort {
     /// `QuicDstConnShort` internally tracks its `len` for `as_slice` but this `len`
     /// is not part of the on-wire format for the Short Header DCID itself.
     pub dst: QuicDstConnShort,
-    // No Source CID field in QUIC v1 Short Headers on the wire.
 }
 impl QuicHdrShort {
     pub const LEN: usize = core::mem::size_of::<Self>();
-    
+
     /// The minimum length of a Short Header on the wire, consisting of:
     /// 1 (First Byte, part of `QuicHdr`) + 0 (DCID bytes, if DCID len is 0) = 1 byte.
     pub const MIN_LEN_ON_WIRE: usize = 1;
@@ -507,16 +551,16 @@ pub union QuicHdrUn {
     /// Data for a Short Header.
     pub short: QuicHdrShort,
 }
+
 impl Default for QuicHdrUn {
     fn default() -> Self {
         Self {
-            long: QuicHdrLong::default(), // Default to long for safety, though QuicHdr::new manages this.
+            long: QuicHdrLong::default(),
         }
     }
 }
 impl fmt::Debug for QuicHdrUn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Actual data is debugged via QuicHdr, which knows the active variant.
         f.write_str("QuicHdrUn { ... }")
     }
 }
@@ -759,13 +803,12 @@ pub enum QuicHeaderType {
 pub struct QuicHdr {
     first_byte: u8,
     inner: QuicHdrUn,
-    header_type: QuicHeaderType, // Logical field, not on wire. Crucial for interpretation.
+    header_type: QuicHeaderType,
 }
 
 impl QuicHdr {
-
     pub const LEN: usize = core::mem::size_of::<Self>();
-    
+
     /// Minimum on-wire size of a QUIC Long Header (1 (flags/type) + 4 (version) + 1 (DCIL byte) + 1 (SCIL byte) = 7 bytes),
     /// This excludes any actual CID data bytes.
     pub const MIN_LONG_HDR_LEN_ON_WIRE: usize = QuicHdrLong::MIN_LEN_ON_WIRE;
@@ -801,9 +844,8 @@ impl QuicHdr {
                 // dc_id_len captured here
                 let first_byte = FIXED_BIT_MASK; // Set Fixed bit (Form bit is 0)
                 let mut short_data = QuicHdrShort::default();
-                // Initialize the length of the dst CID within short_data if needed,
-                // though `set_dc_id` will manage this.
-                // The dc_id_len from header_type is the primary source of truth for effective length.
+                // The dc_id_len from header_type is the primary source of truth
+                // for effective length.
                 short_data.dst.len = cmp::min(dc_id_len, QUIC_MAX_CID_LEN as u8);
                 Self {
                     first_byte,
@@ -843,7 +885,8 @@ impl QuicHdr {
         // via set_header_type() to match, which also reinitializes self.inner.
     }
 
-    /// Checks if the Header Form bit (most significant bit of `first_byte`) indicates a Long Header.
+    /// Checks if the Header Form bit (the most significant bit of `first_byte`)
+    /// indicates a Long Header.
     ///
     /// # Returns
     /// `true` if bit 7 is 1 (Long Header), `false` if 0 (Short Header).
@@ -952,7 +995,7 @@ impl QuicHdr {
     #[inline]
     pub fn short_reserved_bits(&self) -> Result<u8, QuicHdrError> {
         if !self.is_long_header() {
-            // Safety: !is_long_header() ensures conditions for unchecked_short_reserved_bits are met.
+            // Safety: !is_long_header() ensures conditions are met.
             Ok(unsafe { self.unchecked_short_reserved_bits() })
         } else {
             Err(QuicHdrError::InvalidHeaderForm)
@@ -1133,7 +1176,7 @@ impl QuicHdr {
     #[inline]
     pub fn set_long_packet_type(&mut self, lptype: u8) -> Result<(), QuicHdrError> {
         if self.is_long_header() {
-            // Safety: `is_long_header()` check ensures conditions for `unchecked_set_long_packet_type` are met.
+            // Safety: `is_long_header()` check ensures conditions for are met.
             unsafe { self.unchecked_set_long_packet_type(lptype) };
             Ok(())
         } else {
@@ -1392,8 +1435,7 @@ impl QuicHdr {
     pub fn set_header_type(&mut self, new_type: QuicHeaderType) {
         let other_bits = self.first_byte & !(HEADER_FORM_BIT | FIXED_BIT_MASK);
         // Safety: This method correctly manages union transitions and first_byte consistency.
-        unsafe { self.unchecked_set_header_type(new_type) }; // This sets self.header_type and Form/Fixed bits in first_byte.
-                                                             // Re-apply the other bits that were not part of Form/Fixed.
+        unsafe { self.unchecked_set_header_type(new_type) };
         self.first_byte |= other_bits;
     }
 }
@@ -1702,8 +1744,6 @@ impl QuicHdr {
     pub unsafe fn unchecked_dc_id(&self) -> &[u8] {
         let len = self.unchecked_dc_id_effective_len() as usize;
         match self.header_type {
-            // Use .bytes[] directly with computed length to avoid as_slice() using its own internal len
-            // that might not match dc_id_len from QuicHeaderType::QuicShort context.
             QuicHeaderType::QuicLong => &self.inner.long.dst.bytes[..len],
             QuicHeaderType::QuicShort { .. } => &self.inner.short.dst.bytes[..len],
         }
@@ -1792,12 +1832,11 @@ impl QuicHdr {
     /// Caller must repopulate CID data if it needs to be preserved across such a type change.
     /// Caller should ensure other bits in `first_byte` are appropriate for `new_type`.
     pub unsafe fn unchecked_set_header_type(&mut self, new_type: QuicHeaderType) {
-        let current_is_long = self.is_long_header(); // Based on current first_byte
+        let current_is_long = self.is_long_header();
         let new_is_long = match new_type {
             QuicHeaderType::QuicLong => true,
             QuicHeaderType::QuicShort { .. } => false,
         };
-
         if current_is_long != new_is_long {
             // Form is changing, reinitialize union and update first_byte's Form bit
             if new_is_long {
@@ -1805,7 +1844,6 @@ impl QuicHdr {
                     long: QuicHdrLong::default(),
                 };
                 self.first_byte = (self.first_byte | HEADER_FORM_BIT) | FIXED_BIT_MASK;
-            // Long + Fixed
             } else {
                 let dc_id_len_for_short = if let QuicHeaderType::QuicShort { dc_id_len } = new_type
                 {
@@ -1817,23 +1855,21 @@ impl QuicHdr {
                 short_data.dst.len = cmp::min(dc_id_len_for_short, QUIC_MAX_CID_LEN as u8);
                 self.inner = QuicHdrUn { short: short_data };
                 self.first_byte = (self.first_byte & !HEADER_FORM_BIT) | FIXED_BIT_MASK;
-                // Short + Fixed
             }
         } else {
             // Form is not changing, but QuicShort's dc_id_len might be.
-            // Ensure fixed bit is correct for the form.
+            // Ensure the fixed bit is correct for the form.
             if new_is_long {
-                // And current_is_long is also true
                 self.first_byte |= HEADER_FORM_BIT | FIXED_BIT_MASK;
             } else {
                 self.first_byte = (self.first_byte & !HEADER_FORM_BIT) | FIXED_BIT_MASK;
-                // If type is QuicShort, update inner.short.dst.len if dc_id_len changes
+                // If the type is QuicShort, update inner.short.dst.len if dc_id_len changes
                 if let QuicHeaderType::QuicShort { dc_id_len } = new_type {
                     self.inner.short.dst.len = cmp::min(dc_id_len, QUIC_MAX_CID_LEN as u8);
                 }
             }
         }
-        self.header_type = new_type; // Set the new logical type
+        self.header_type = new_type;
     }
 
     /// Sets the Header Form bit in `first_byte` without performing structural changes.
@@ -1873,6 +1909,7 @@ impl fmt::Debug for QuicHdr {
         s.field(
             "first_byte",
             &format_args!(
+                // format_args! is core-friendly
                 "{:#04x} (Form: {}, Fixed: {}, TypeSpecific: {:#04x})",
                 self.first_byte,
                 if self.is_long_header() {
@@ -1891,7 +1928,6 @@ impl fmt::Debug for QuicHdr {
                 s.field("version", &self.version().ok());
                 s.field("dc_id", &self.dc_id());
                 s.field("sc_id", &self.sc_id().ok());
-                // For more detail, could print packet_type, pn_len_bits etc.
             }
             QuicHeaderType::QuicShort { .. } => {
                 s.field("dc_id", &self.dc_id());
@@ -1906,10 +1942,41 @@ impl fmt::Debug for QuicHdr {
 #[cfg(feature = "serde")]
 mod serde_header_impl {
     use super::*;
+    use core::fmt;
     use serde::{
-        de::{self, Error as SerdeError, Visitor},
+        de::{self, Visitor},
         Deserializer, Serializer,
     };
+
+    struct TruncatedHeaderError {
+        name: &'static str,
+        got: usize,
+        min: usize,
+    }
+    impl fmt::Display for TruncatedHeaderError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "Truncated {}: got {} bytes, need at least {}",
+                self.name, self.got, self.min
+            )
+        }
+    }
+
+    struct HeaderFieldLengthExceedsMaxError {
+        value: usize,
+        max: usize,
+        field_name: &'static str,
+    }
+    impl fmt::Display for HeaderFieldLengthExceedsMaxError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "{} {} from wire exceeds max {}",
+                self.field_name, self.value, self.max
+            )
+        }
+    }
 
     impl serde::Serialize for QuicHdr {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -1917,13 +1984,14 @@ mod serde_header_impl {
             S: Serializer,
         {
             // Max possible size: 1 (first_byte) + 4 (version) + 1 (DCIL) + MAX_CID + 1 (SCIL) + MAX_CID
-            let mut buf = [0u8; 1 + 4 + 1 + QUIC_MAX_CID_LEN + 1 + QUIC_MAX_CID_LEN];
+            let mut buf = [0u8; 7 + QUIC_MAX_CID_LEN + QUIC_MAX_CID_LEN];
             let mut current_idx = 0usize;
             buf[current_idx] = self.first_byte;
             current_idx += 1;
             match self.header_type {
                 QuicHeaderType::QuicLong => {
-                    let long_hdr = unsafe { &self.inner.long }; // Safe due to header_type check
+                    // Safety: header_type check
+                    let long_hdr = unsafe { &self.inner.long };
                     buf[current_idx..current_idx + 4].copy_from_slice(&long_hdr.version);
                     current_idx += 4;
                     let dc_len = long_hdr.dst.len() as usize; // Length from QuicDstConnLong
@@ -1969,18 +2037,17 @@ mod serde_header_impl {
                 return Err(E::custom("QUIC header cannot be empty"));
             }
             let first_byte = v[0];
-            let mut current_idx = 1usize; // Start parsing after the first byte
+            let mut current_idx = 1usize;
             if (first_byte & HEADER_FORM_BIT) != 0 {
                 // Long Header
                 if v.len() < QuicHdr::MIN_LONG_HDR_LEN_ON_WIRE {
                     // Basic check for minimal parts
-                    return Err(E::custom(format!(
-                        "Truncated long header: got {} bytes, need at least {}",
-                        v.len(),
-                        QuicHdr::MIN_LONG_HDR_LEN_ON_WIRE
-                    )));
+                    return Err(E::custom(TruncatedHeaderError {
+                        name: "long header",
+                        got: v.len(),
+                        min: QuicHdr::MIN_LONG_HDR_LEN_ON_WIRE,
+                    }));
                 }
-                // Create with QuicLong type, then populate. first_byte set at the end.
                 let mut hdr = QuicHdr::new(QuicHeaderType::QuicLong);
                 // Version
                 if v.len() < current_idx + 4 {
@@ -1989,42 +2056,42 @@ mod serde_header_impl {
                 let mut version_bytes = [0u8; 4];
                 version_bytes.copy_from_slice(&v[current_idx..current_idx + 4]);
                 hdr.set_version(u32::from_be_bytes(version_bytes))
-                    .map_err(E::custom)?;
+                    .map_err(|e| E::custom(e))?;
                 current_idx += 4;
-                // DCID
                 if v.len() < current_idx + 1 {
                     return Err(E::custom("Missing DCIL in long header"));
                 }
                 let dc_len_on_wire = v[current_idx] as usize;
                 current_idx += 1;
                 if dc_len_on_wire > QUIC_MAX_CID_LEN {
-                    return Err(E::custom(format!(
-                        "DCID length {} from wire exceeds max {}",
-                        dc_len_on_wire, QUIC_MAX_CID_LEN
-                    )));
+                    return Err(E::custom(HeaderFieldLengthExceedsMaxError {
+                        value: dc_len_on_wire,
+                        max: QUIC_MAX_CID_LEN,
+                        field_name: "DCID length",
+                    }));
                 }
                 if v.len() < current_idx + dc_len_on_wire {
                     return Err(E::custom("Truncated DCID in long header"));
                 }
-                hdr.set_dc_id(&v[current_idx..current_idx + dc_len_on_wire]); // This also sets length in .inner.long.dst
+                hdr.set_dc_id(&v[current_idx..current_idx + dc_len_on_wire]);
                 current_idx += dc_len_on_wire;
-                // SCID
                 if v.len() < current_idx + 1 {
                     return Err(E::custom("Missing SCIL in long header"));
                 }
                 let sc_len_on_wire = v[current_idx] as usize;
                 current_idx += 1;
                 if sc_len_on_wire > QUIC_MAX_CID_LEN {
-                    return Err(E::custom(format!(
-                        "SCID length {} from wire exceeds max {}",
-                        sc_len_on_wire, QUIC_MAX_CID_LEN
-                    )));
+                    return Err(E::custom(HeaderFieldLengthExceedsMaxError {
+                        value: sc_len_on_wire,
+                        max: QUIC_MAX_CID_LEN,
+                        field_name: "SCID length",
+                    }));
                 }
                 if v.len() < current_idx + sc_len_on_wire {
                     return Err(E::custom("Truncated SCID in long header"));
                 }
                 hdr.set_sc_id(&v[current_idx..current_idx + sc_len_on_wire])
-                    .map_err(E::custom)?;
+                    .map_err(|e| E::custom(e))?; // Pass the error that implements Display
                 hdr.set_first_byte(first_byte); // Set the original first_byte
                 Ok(hdr)
             } else {
@@ -2058,6 +2125,8 @@ mod serde_header_impl {
 mod tests {
     use super::*;
     #[cfg(feature = "serde")]
+    use bincode;
+    #[cfg(feature = "serde")]
     use serde_test::{assert_tokens, Token};
 
     #[test]
@@ -2089,7 +2158,7 @@ mod tests {
         assert_eq!(hdr.dc_id(), &dcid_data);
         assert_eq!(hdr.sc_id_len_on_wire(), Ok(4));
         assert_eq!(hdr.sc_id().unwrap(), &scid_data);
-        // Check internal consistency of CIDs within the QuicHdrLong part
+        // Check the internal consistency of CIDs within the QuicHdrLong part
         unsafe {
             assert_eq!(hdr.inner.long.dst.len(), 8);
             assert_eq!(hdr.inner.long.dst.as_slice(), &dcid_data);
@@ -2107,7 +2176,6 @@ mod tests {
         });
         assert!(!hdr.is_long_header());
         assert_eq!(hdr.first_byte() & 0xC0, FIXED_BIT_MASK); // Form bit 0, Fixed bit 1
-
         assert!(hdr.set_short_spin_bit(true).is_ok());
         assert_eq!(hdr.short_spin_bit(), Ok(true));
         assert!(hdr.set_short_reserved_bits(0b00).is_ok());
@@ -2156,10 +2224,10 @@ mod tests {
         let short_first_byte_bits = hdr.first_byte() & 0x3F;
         hdr.set_header_type(QuicHeaderType::QuicLong);
         assert!(hdr.is_long_header());
-        assert_eq!(hdr.version(), Ok(0));
-        assert_eq!(hdr.dc_id_effective_len(), 0);
+        assert_eq!(hdr.version(), Ok(0)); // Version is reset to default
+        assert_eq!(hdr.dc_id_effective_len(), 0); // DCID is reset
         assert_eq!(hdr.dc_id(), &[]);
-        assert_eq!(hdr.sc_id_len_on_wire(), Ok(0));
+        assert_eq!(hdr.sc_id_len_on_wire(), Ok(0)); // SCID is reset
         assert_eq!(hdr.first_byte() & HEADER_FORM_BIT, HEADER_FORM_BIT);
         assert_eq!(hdr.first_byte() & FIXED_BIT_MASK, FIXED_BIT_MASK);
         assert_eq!(hdr.first_byte() & 0x3F, short_first_byte_bits);
@@ -2176,7 +2244,10 @@ mod tests {
         assert!(hdr.set_sc_id(&[0xBB; 4]).is_ok());
         let expected_first_byte = hdr.first_byte(); // Should be 0xC0 | 0b01 = 0xC1
         assert_eq!(expected_first_byte, 0xC1);
-        let bytes = bincode::serialize(&hdr).expect("Serialization failed");
+
+        let config = bincode::config::standard();
+        let bytes = bincode::serde::encode_to_vec(&hdr, config).expect("Serialization failed");
+
         assert_eq!(bytes[0], expected_first_byte);
         assert_eq!(&bytes[1..5], &0x01020304u32.to_be_bytes()); // Version
         assert_eq!(bytes[5], 8); // DCIL
@@ -2184,7 +2255,9 @@ mod tests {
         assert_eq!(bytes[14], 4); // SCIL
         assert_eq!(&bytes[15..19], &[0xBB; 4]); // SCID
         assert_eq!(bytes.len(), 19); // Total length
-        let de: QuicHdr = bincode::deserialize(&bytes).expect("Deserialization failed");
+        let (de, len): (QuicHdr, usize) =
+            bincode::serde::decode_from_slice(&bytes, config).expect("Deserialization failed");
+        assert_eq!(len, bytes.len());
         assert_eq!(de.first_byte(), expected_first_byte);
         assert!(de.is_long_header());
         assert_eq!(de.header_type(), QuicHeaderType::QuicLong); // Deserializer sets this
@@ -2205,15 +2278,18 @@ mod tests {
         let mut hdr = QuicHdr::new(QuicHeaderType::QuicShort {
             dc_id_len: dcid_data.len() as u8,
         });
-        hdr.set_first_byte(0x40 | SHORT_SPIN_BIT_MASK | SHORT_KEY_PHASE_BIT_MASK | 0b00);
+        hdr.set_first_byte(0x40 | SHORT_SPIN_BIT_MASK | SHORT_KEY_PHASE_BIT_MASK | 0b00); // Fixed | Spin | KeyPhase | PNLEN=1 (00)
         hdr.set_dc_id(&dcid_data);
         let expected_first_byte = hdr.first_byte();
-        assert_eq!(expected_first_byte, 0x64);
-        let bytes = bincode::serialize(&hdr).expect("Serialization failed");
+        assert_eq!(expected_first_byte, 0x40 | 0x20 | 0x04 | 0b00); // 0x64
+        let config = bincode::config::standard();
+        let bytes = bincode::serde::encode_to_vec(&hdr, config).expect("Serialization failed");
         assert_eq!(bytes[0], expected_first_byte);
         assert_eq!(&bytes[1..], &dcid_data); // DCID directly follows
         assert_eq!(bytes.len(), 1 + dcid_data.len());
-        let de: QuicHdr = bincode::deserialize(&bytes).expect("Deserialization failed");
+        let (de, len): (QuicHdr, usize) =
+            bincode::serde::decode_from_slice(&bytes, config).expect("Deserialization failed");
+        assert_eq!(len, bytes.len());
         assert_eq!(de.first_byte(), expected_first_byte);
         assert!(!de.is_long_header());
         if let QuicHeaderType::QuicShort { dc_id_len } = de.header_type() {
@@ -2224,7 +2300,7 @@ mod tests {
         assert_eq!(de.dc_id_effective_len(), dcid_data.len() as u8);
         assert_eq!(de.dc_id(), &dcid_data);
         assert_eq!(de.short_spin_bit(), Ok(true));
-        assert_eq!(de.short_reserved_bits(), Ok(0b00));
+        assert_eq!(de.short_reserved_bits(), Ok(0b00)); // Reserved bits are 00
         assert_eq!(de.short_key_phase(), Ok(true));
         assert_eq!(de.short_pn_length_bits(), Ok(0b00)); // PNLEN=1
     }
@@ -2337,11 +2413,11 @@ mod tests {
         assert_eq!(
             current_offset,
             1 // first_byte
-            + 4 // version
-            + 1 // dcil
-            + 8 // dcid
-            + 1 // scil
-            + 8 // scid
+                + 4 // version
+                + 1 // dcil
+                + 8 // dcid
+                + 1 // scil
+                + 8 // scid
         );
     }
 
@@ -2374,7 +2450,7 @@ mod tests {
         let dcid_data_from_packet =
             &packet_bytes[current_offset..current_offset + contextual_dcid_len as usize];
         hdr.set_dc_id(dcid_data_from_packet); // This sets data and updates internal length fields
-        current_offset += contextual_dcid_len as usize; // <<< THIS LINE WAS THE FIX (uncommented and placed correctly)
+        current_offset += contextual_dcid_len as usize;
         assert!(!hdr.is_long_header()); // Confirmed by first_byte set earlier
         assert_eq!(hdr.fixed_bit(), 1);
         assert_eq!(hdr.short_spin_bit(), Ok(false));
@@ -2390,10 +2466,7 @@ mod tests {
             hdr.dc_id_len_on_wire(),
             Err(QuicHdrError::InvalidHeaderForm)
         );
-        assert_eq!(
-            current_offset,
-            1 /* first_byte */ + contextual_dcid_len as usize /* dcid */
-        );
+        assert_eq!(current_offset, 1 + contextual_dcid_len as usize);
     }
 
     #[test]
