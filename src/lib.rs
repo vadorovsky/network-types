@@ -13,5 +13,4 @@ pub mod udp;
 pub mod vlan;
 pub mod vxlan;
 pub mod llc;
-mod ospf_gen;
-mod ospf;
+pub mod ospf;
