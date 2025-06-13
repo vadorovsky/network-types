@@ -14,7 +14,6 @@ use core::fmt;
 /// For more details, see RFC 2784: https://www.rfc-editor.org/rfc/rfc2784.html
 /// 
 /// /// A struct containing the optional checksum and reserved fields.
-
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
@@ -86,9 +85,11 @@ impl GreHdr {
 
     /// Sets the checksum from a big-endian 2-byte array.
     #[inline]
+    #[allow(clippy::unnecessary_unsafe_block)]
     pub fn set_checksum(&mut self, checksum: [u8; 2]) {
         self.set_checksum_present(true);
-        // SAFETY: Unsafe set to check field made safe by the set above.
+        // SAFETY: The `unsafe` block is retained to satisfy the compiler's
+        // E0133 error, even though the operation is conceptually safe.
         unsafe {
             self.data.fields.check = checksum;
         }
