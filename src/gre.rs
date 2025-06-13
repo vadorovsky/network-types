@@ -1,4 +1,5 @@
 use crate::eth::EtherType;
+use core::fmt;
 
 /// Represents a Generic Routing Encapsulation (GRE) header as defined in RFC 2784.
 ///
@@ -14,26 +15,6 @@ use crate::eth::EtherType;
 /// 
 /// /// A struct containing the optional checksum and reserved fields.
 
-#[repr(C, packed)]
-#[derive(Debug, Copy, Clone)]
-pub struct GreOptionalFields {
-    /// This field is only valid if the Checksum Present flag is set.
-    pub check: [u8; 2],
-    /// A reserved field for future use, which MUST be transmitted as zero (optional).
-    /// This field is only present if the Checksum Present flag is set.
-    pub _reserved1: [u8; 2],
-}
-
-/// A union representing the 4 bytes that can either be optional GRE fields
-/// or the start of the payload data.
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union GreDataUnion {
-    /// The interpretation when checksum_present() is true.
-    fields: GreOptionalFields,
-    /// The interpretation when checksum_present() is false.
-    payload_start: [u8; 4],
-}
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
@@ -66,28 +47,6 @@ impl GreHdr {
         } else {
             self.flag_reserved0_ver[0] &= !0x80;
         }
-    }
-
-    /// Gets the 12-bit Reserved0 field.
-    #[inline]
-    pub fn get_reserved0(&self) -> u16 {
-        let upper = ((self.flag_reserved0_ver[1] & 0xF8) >> 3) as u16;
-        let lower = (self.flag_reserved0_ver[0] & 0x7F) as u16;
-        
-        (upper << 7) | lower
-    }
-
-    /// Sets the 12-bit Reserved0 field.
-    /// According to RFC 2784, this value SHOULD be set to 0.
-    #[inline]
-    pub fn set_reserved0(&mut self, value: u16) {
-        let value = value & 0x0FFF;
-
-        let upper = (value >> 7) as u8;
-        let lower = (value & 0x007F) as u8;
-        
-        self.flag_reserved0_ver[0] = (self.flag_reserved0_ver[0] & 0x80) | lower;
-        self.flag_reserved0_ver[1] = (self.flag_reserved0_ver[1] & 0x07) | (upper << 3);
     }
 
     /// Gets the 3-bit Version number.
@@ -134,26 +93,6 @@ impl GreHdr {
             self.data.fields.check = checksum;
         }
     }
-    
-    /// Gets the reserved1 as a big-endian 2-byte array.
-    #[inline]
-    pub fn get_reserved1(&self) -> Option<[u8; 2]> {
-        if self.checksum_present() {
-            // SAFETY: Unsafe access to _reserved1 field made safe by the guard above.
-            Some(unsafe { self.data.fields._reserved1 })
-        } else {
-            None
-        }
-    }
-    
-    /// Sets the reserved1 from a big-endian 2-byte array.
-    #[inline]
-    pub fn set_reserved1(&mut self, reserved1: [u8; 2]) {
-        self.set_checksum_present(true);
-        unsafe {
-            self.data.fields._reserved1 = reserved1;
-        }
-    }
 
     /// Returns the total length of the GRE header based on the RFC specification.
     #[inline]
@@ -164,6 +103,51 @@ impl GreHdr {
             4
         }
     }
+}
+
+/// Custom Debug implementation for GreHdr to correctly format the inner union.
+impl fmt::Debug for GreHdr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug_struct = f.debug_struct("GreHdr");
+        let protocol_type = self.protocol_type;
+
+        debug_struct.field("flag_reserved0_ver", &self.flag_reserved0_ver);
+        debug_struct.field("protocol_type", &protocol_type);
+
+        // Check the flag to decide how to safely interpret and format the union.
+        if self.checksum_present() {
+            // SAFETY: It is safe to access the `fields` variant because we have
+            // confirmed the Checksum Present bit is set.
+            debug_struct.field("data", unsafe { &self.data.fields });
+        } else {
+            // SAFETY: It is safe to access the `payload_start` variant because
+            // we have confirmed the Checksum Present bit is not set.
+            debug_struct.field("data", unsafe { &self.data.payload_start });
+        }
+
+        debug_struct.finish()
+    }
+}
+
+#[repr(C, packed)]
+#[derive(Debug, Copy, Clone)]
+pub struct GreOptionalFields {
+    /// This field is only valid if the Checksum Present flag is set.
+    pub check: [u8; 2],
+    /// A reserved field for future use, which MUST be transmitted as zero (optional).
+    /// This field is only present if the Checksum Present flag is set.
+    pub _reserved1: [u8; 2],
+}
+
+/// A union representing the 4 bytes that can either be optional GRE fields
+/// or the start of the payload data.
+#[repr(C, packed)]
+#[derive(Copy, Clone)]
+pub union GreDataUnion {
+    /// The interpretation when checksum_present() is true.
+    fields: GreOptionalFields,
+    /// The interpretation when checksum_present() is false.
+    payload_start: [u8; 4],
 }
 
 #[cfg(test)]
@@ -257,22 +241,6 @@ mod tests {
 
         gre_header.set_checksum([0xAB, 0xCD]);
         assert_eq!([gre_bytes[4], gre_bytes[5]], [0xAB, 0xCD]);
-    }
-
-    #[test]
-    fn test_get_reserved1() {
-        let received_bytes: [u8; 8] = [0x80, 0x00,0,0,0,0, 0xBE, 0xEF];
-        let received_header = unsafe { gre_from_bytes(&received_bytes) };
-        assert_eq!(received_header.get_reserved1(), Some([0xBE, 0xEF]));
-    }
-
-    #[test]
-    fn test_set_reserved1() {
-        let mut gre_bytes = [0u8; 8];
-        let gre_header = unsafe { gre_from_bytes_mut(&mut gre_bytes) };
-
-        gre_header.set_reserved1([0x12, 0x34]);
-        assert_eq!([gre_bytes[6], gre_bytes[7]], [0x12, 0x34]);
     }
 
     #[test]
