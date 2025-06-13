@@ -43,28 +43,6 @@ impl WgInitHdr {
         self.type_ = type_;
     }
 
-    /// Returns the reserved bytes.
-    ///
-    /// These bytes are reserved for future use and should be set to zero.
-    ///
-    /// # Returns
-    /// An array of 3 bytes containing the reserved field.
-    #[inline]
-    pub fn get_reserved0(&self) -> [u8; 3] {
-        self._reserved
-    }
-
-    /// Sets the reserved bytes.
-    ///
-    /// These bytes are reserved for future use and should be set to zero.
-    ///
-    /// # Parameters
-    /// * `reserved` - An array of 3 bytes to set as the reserved field.
-    #[inline]
-    pub fn set_reserved0(&mut self, reserved: [u8; 3]) {
-        self._reserved = reserved;
-    }
-
     /// Returns the sender ID.
     ///
     /// This method converts the sender ID from network byte order (big-endian)
@@ -222,28 +200,6 @@ impl WgResHdr {
         self.type_ = type_;
     }
 
-    /// Returns the reserved bytes.
-    ///
-    /// These bytes are reserved for future use and should be set to zero.
-    ///
-    /// # Returns
-    /// An array of 3 bytes containing the reserved field.
-    #[inline]
-    pub fn get_reserved0(&self) -> [u8; 3] {
-        self._reserved
-    }
-
-    /// Sets the reserved bytes.
-    ///
-    /// These bytes are reserved for future use and should be set to zero.
-    ///
-    /// # Parameters
-    /// * `reserved` - An array of 3 bytes to set as the reserved field.
-    #[inline]
-    pub fn set_reserved0(&mut self, reserved: [u8; 3]) {
-        self._reserved = reserved;
-    }
-
     /// Returns the sender ID.
     ///
     /// This method converts the sender ID from network byte order (big-endian)
@@ -387,26 +343,6 @@ impl WgTransHdr {
         self.type_ = type_.to_be();
     }
 
-    /// Returns the reserved bytes.
-    ///
-    /// These bytes are reserved for future use and should be set to zero.
-    ///
-    /// # Returns
-    /// An array of 3 bytes containing the reserved field.
-    pub fn get_reserved(&self) -> [u8; 3] {
-        self._reserved
-    }
-
-    /// Sets the reserved bytes.
-    ///
-    /// These bytes are reserved for future use and should be set to zero.
-    ///
-    /// # Parameters
-    /// * `reserved` - An array of 3 bytes to set as the reserved field.
-    pub fn set_reserved(&mut self, reserved: [u8; 3]) {
-        self._reserved = reserved;
-    }
-
     /// Returns the receiver ID.
     ///
     /// This method converts the receiver ID from network byte order (big-endian)
@@ -522,26 +458,6 @@ impl WgCookieRplHdr {
     /// * `type_` - The message type to set.
     pub fn set_type(&mut self, type_: u8) {
         self.type_ = type_.to_be();
-    }
-
-    /// Returns the reserved bytes.
-    ///
-    /// These bytes are reserved for future use and should be set to zero.
-    ///
-    /// # Returns
-    /// An array of 3 bytes containing the reserved field.
-    pub fn get_reserved(&self) -> [u8; 3] {
-        self._reserved
-    }
-
-    /// Sets the reserved bytes.
-    ///
-    /// These bytes are reserved for future use and should be set to zero.
-    ///
-    /// # Parameters
-    /// * `reserved` - An array of 3 bytes to set as the reserved field.
-    pub fn set_reserved(&mut self, reserved: [u8; 3]) {
-        self._reserved = reserved;
     }
 
     /// Returns the receiver ID.
@@ -660,11 +576,6 @@ mod tests {
         hdr.set_type(5);
         assert_eq!(hdr.get_type(), 5);
 
-        assert_eq!(hdr.get_reserved0(), [0, 0, 0]);
-        let new_reserved = [1, 1, 1];
-        hdr.set_reserved0(new_reserved);
-        assert_eq!(hdr.get_reserved0(), new_reserved);
-
         assert_eq!(hdr.get_sender(), 0x01020304);
         let new_sender = [5, 6, 7, 8];
         hdr.set_sender(new_sender);
@@ -708,12 +619,7 @@ mod tests {
         assert_eq!(hdr.get_type(), 2);
         hdr.set_type(6);
         assert_eq!(hdr.get_type(), 6);
-
-        assert_eq!(hdr.get_reserved0(), [0, 0, 0]);
-        let new_reserved = [1, 1, 1];
-        hdr.set_reserved0(new_reserved);
-        assert_eq!(hdr.get_reserved0(), new_reserved);
-
+        
         assert_eq!(hdr.get_sender(), 0x05060708);
         let new_sender = [9, 10, 11, 12];
         hdr.set_sender(new_sender);
@@ -752,11 +658,6 @@ mod tests {
         assert_eq!(hdr.get_type(), 3);
         hdr.set_type(7);
         assert_eq!(hdr.get_type(), 7);
-
-        assert_eq!(hdr.get_reserved(), [0, 0, 0]);
-        let new_reserved = [1, 1, 1];
-        hdr.set_reserved(new_reserved);
-        assert_eq!(hdr.get_reserved(), new_reserved);
 
         assert_eq!(hdr.get_receiver(), 0x01020304); 
 
@@ -812,11 +713,6 @@ mod tests {
         assert_eq!(hdr.get_type(), 4);
         hdr.set_type(8);
         assert_eq!(hdr.get_type(), 8);
-
-        assert_eq!(hdr.get_reserved(), [0, 0, 0]);
-        let new_reserved = [1, 1, 1];
-        hdr.set_reserved(new_reserved);
-        assert_eq!(hdr.get_reserved(), new_reserved);
 
         assert_eq!(hdr.get_receiver(), 0x01020304); 
         let new_receiver = [5, 6, 7, 8];
