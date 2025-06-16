@@ -20,9 +20,6 @@ const SHORT_RESERVED_BITS_SHIFT: u8 = 3;
 const SHORT_KEY_PHASE_BIT_MASK: u8 = 0x04;
 const PN_LENGTH_BITS_MASK: u8 = 0x03;
 
-#[cfg(feature = "serde")]
-use serde_bytes::{ByteBuf, Bytes};
-
 /// Error type for safe getter/setter operations on `QuicHdr`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum QuicHdrError {
@@ -323,9 +320,7 @@ macro_rules! impl_cid_common {
                 ser::SerializeStruct,
                 Deserializer, Serializer,
             };
-            // Assumes `use serde_bytes::{ByteBuf, Bytes};` is at the top of the file.
             // Assumes helper structs are in `crate::quic::cid_serde_helpers`
-
             struct CidVisitor;
             impl<'de> Visitor<'de> for CidVisitor {
                 type Value = $t;
@@ -345,13 +340,13 @@ macro_rules! impl_cid_common {
                     let len: u8 = seq.next_element()?.ok_or_else(|| {
                         de::Error::invalid_length(0, &"Missing CID len in sequence")
                     })?;
-                    let bytes_buf: ByteBuf = seq.next_element()?.ok_or_else(|| {
+                    let bytes_slice: &[u8] = seq.next_element()?.ok_or_else(|| {
                         de::Error::invalid_length(1, &"Missing CID bytes in sequence")
                     })?;
 
-                    if bytes_buf.len() != len as usize {
+                    if bytes_slice.len() != len as usize {
                         return Err(de::Error::invalid_value(
-                            de::Unexpected::Bytes(bytes_buf.as_ref()),
+                            de::Unexpected::Bytes(bytes_slice),
                             &crate::quic::cid_serde_helpers::ExpectedCidBytesInfo { len },
                         ));
                     }
@@ -366,7 +361,8 @@ macro_rules! impl_cid_common {
                         ));
                     }
                     let mut id = $t::new();
-                    id.set(bytes_buf.as_ref());
+                    // REPLACED: Use the slice directly.
+                    id.set(bytes_slice);
                     id.len = len; // Ensure length is set after data.
                     Ok(id)
                 }
@@ -399,7 +395,8 @@ macro_rules! impl_cid_common {
                     if $with_len_on_wire {
                         let mut st = serializer.serialize_struct(stringify!($t), 2)?;
                         st.serialize_field("len", &self.len)?;
-                        st.serialize_field("bytes", &Bytes::new(self.as_slice()))?;
+                        // REPLACED: `&Bytes::new(...)` with the raw slice. `serde` handles it correctly.
+                        st.serialize_field("bytes", self.as_slice())?;
                         st.end()
                     } else {
                         serializer.serialize_bytes(self.as_slice())
