@@ -299,23 +299,6 @@ impl OspfV3Hdr {
     pub fn set_instance_id(&mut self, instance_id_value: u8) {
         self.instance_id = instance_id_value;
     }
-
-    /// Returns the reserved field.
-    #[inline]
-    pub fn reserved(&self) -> u8 {
-        self.reserved
-    }
-
-    /// Sets the reserved field.
-    /// As per RFC 5340, Section A.3.1, this field MUST be set to 0.
-    ///
-    /// # Arguments
-    ///
-    /// * `reserved_value` - The value to set for the reserved field.
-    #[inline]
-    pub fn set_reserved(&mut self, reserved_value: u8) {
-        self.reserved = reserved_value;
-    }
 }
 
 
@@ -448,7 +431,6 @@ mod tests {
         assert_eq!(hdr.area_id(), 0);
         assert_eq!(hdr.checksum(), 0);
         assert_eq!(hdr.instance_id(), 0);
-        assert_eq!(hdr.reserved(), 0);
     }
 
     #[test]
@@ -496,12 +478,6 @@ mod tests {
         hdr.set_instance_id(instance_id_val);
         assert_eq!(hdr.instance_id(), instance_id_val);
         assert_eq!(hdr.instance_id, instance_id_val); // Check raw field
-
-        // Reserved
-        let reserved_val: u8 = 0; // Must be 0
-        hdr.set_reserved(reserved_val);
-        assert_eq!(hdr.reserved(), reserved_val);
-        assert_eq!(hdr.reserved, reserved_val); // Check raw field
     }
 
     #[test]
@@ -526,7 +502,6 @@ mod tests {
         hdr.set_area_id(5);
         hdr.set_checksum(0x1234);
         hdr.set_instance_id(0);
-        hdr.set_reserved(0);
 
         // Verify raw field values after setters ensure correct network byte order storage
         assert_eq!(hdr.version, expected_bytes[0]);
@@ -536,6 +511,5 @@ mod tests {
         assert_eq!(hdr.area_id, [expected_bytes[8], expected_bytes[9], expected_bytes[10], expected_bytes[11]]);
         assert_eq!(hdr.checksum, [expected_bytes[12], expected_bytes[13]]);
         assert_eq!(hdr.instance_id, expected_bytes[14]);
-        assert_eq!(hdr.reserved, expected_bytes[15]);
     }
 }
