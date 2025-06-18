@@ -19,15 +19,15 @@ pub struct LlcHdr {
 /// Represents the type of LLC PDU based on its control field.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum LlcFrameType {
-    I, // Information
-    S, // Supervisory
-    U, // Unnumbered
+    I,       // Information
+    S,       // Supervisory
+    U,       // Unnumbered
     Invalid, // Should not happen with valid LLC frames
 }
 
 impl LlcHdr {
     pub const LEN: usize = mem::size_of::<LlcHdr>();
-    
+
     /// Gets the 7-bit DSAP address part.
     #[inline]
     pub fn dsap_addr(&self) -> u8 {
@@ -55,7 +55,7 @@ impl LlcHdr {
     pub fn set_dsap(&mut self, addr: u8, is_group: bool) {
         self.dsap = ((addr & 0x7F) << 1) | (is_group as u8);
     }
-    
+
     /// Gets the 7-bit SSAP address part.
     #[inline]
     pub fn ssap_address(&self) -> u8 {
@@ -104,13 +104,13 @@ impl LlcHdr {
     pub fn is_i_format(&self) -> bool {
         self.frame_type() == LlcFrameType::I
     }
-    
+
     /// Returns true if the control field is S-format (16 bits).
     #[inline]
     pub fn is_s_format(&self) -> bool {
         self.frame_type() == LlcFrameType::S
     }
-    
+
     /// Returns true if the control field is U-format (8 bits).
     #[inline]
     pub fn is_u_format(&self) -> bool {
@@ -188,7 +188,7 @@ mod tests {
 
         // Test setting with address larger than 7 bits (should be masked)
         llc.set_ssap(0b10101010, true); // Address 0xAA (should become 0x2A), Response
-        assert_eq!(llc.ssap_address(), 0x2A);     // 0b0101010
+        assert_eq!(llc.ssap_address(), 0x2A); // 0b0101010
         assert!(llc.ssap_is_response());
         assert_eq!(llc.ssap, (0x2A << 1) | 0x01); // 0x55
     }
@@ -248,7 +248,7 @@ mod tests {
         assert_eq!(llc.control_byte1(), Some(0x07));
 
         llc.ctrl[0] = 0x0D; // Example: 00001001 -> is 0x09
-        //  LSBs 01 -> 00001101 is 0x0D
+                            //  LSBs 01 -> 00001101 is 0x0D
         llc.ctrl[0] = 0x09; // (000010_01)
         llc.ctrl[1] = 0x00;
         assert_eq!(llc.frame_type(), LlcFrameType::S);

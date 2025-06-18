@@ -118,6 +118,4 @@ feature flag. It is intended to be used with binary serialization libraries
 like [`bincode`](https://crates.io/crates/bincode) that leverage Serde's
 infrastructure.
 
-Note that `no_std` support is lost when enabling Serde.
-
 License: MIT

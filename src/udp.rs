@@ -249,7 +249,7 @@ mod test {
         assert_eq!(udp_hdr.len(), u16::MAX);
         assert_eq!(udp_hdr.len, [0xFF, 0xFF]);
     }
-    
+
     #[test]
     fn test_empty() {
         let mut udp_hdr = UdpHdr {
