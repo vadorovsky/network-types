@@ -7,7 +7,7 @@ use core::mem;
 /// Header length: 8 bytes.
 /// Reference: RFC 7348.
 #[repr(C, packed)]
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct VxlanHdr {
     /// Flags (8 bits). Bit 3 (I flag) must be 1 if VNI is present. Other bits are reserved (R).
@@ -45,6 +45,25 @@ impl VxlanHdr {
         };
         hdr.set_vni(vni);
         hdr
+    }
+
+    /// Creates a new `VxlanHdr`.
+    ///
+    /// Sets the I-flag, zeros reserved fields, and sets the VNI.
+    ///
+    /// # Parameters
+    /// - `flags`: The 8-bit value to set for the flag field.
+    /// - `vni`: The 24-bit VXLAN Network Identifier.
+    ///
+    /// # Returns
+    /// A new `VxlanHdr` instance.
+    pub fn with_flags(flags: u8, vni: [u8; 3]) -> Self {
+        Self {
+            flags,
+            _reserved1: [0; 3],
+            vni,
+            _reserved2: 0,
+        }
     }
 
     /// Returns the raw flags' byte.
@@ -136,18 +155,6 @@ mod tests {
     }
 
     #[test]
-    fn test_vxlanhdr_default() {
-        let hdr = VxlanHdr::default();
-        assert_eq!(hdr.flags, 0, "Default flags should be 0");
-        assert!(
-            !hdr.vni_present(),
-            "Default VNI present flag should be false"
-        );
-        assert_eq!(hdr.vni, [0, 0, 0], "Default vni should be zero");
-        assert_eq!(hdr.vni(), 0, "Default VNI should be 0");
-    }
-
-    #[test]
     fn test_flags_management() {
         let mut hdr = VxlanHdr::new(0x123);
         hdr.set_flags(0xFF);
@@ -213,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_field_storage_and_retrieval_direct_manipulation() {
-        let mut hdr = VxlanHdr::default();
+        let mut hdr = VxlanHdr::with_flags(0x08, [0xAB, 0xCD, 0xEF]);
         hdr.flags = 0x08;
         hdr.vni = [0xAB, 0xCD, 0xEF];
         assert_eq!(hdr.flags(), 0x08);
