@@ -6,16 +6,14 @@ use core::mem::size_of;
 /// All fields are stored in network byte order (big-endian).
 ///
 /// The structure follows the WireGuard protocol specification for the initial handshake message.
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct WgInitHdr {
-    // Trailing underscore to prevent collision with reserved rust type keyword.
-    pub type_: u8,
+    pub wg_type: u8,
     pub _reserved: [u8; 3],
     pub sender: [u8; 4],
     pub ephemeral: [u8; 32],
-    // Trailing underscore to prevent collision with reserved rust static keyword.
-    pub static_: [u8; 32],
+    pub wg_static: [u8; 32],
     pub timestamp: [u8; 12],
     pub mac1: [u8; 16],
     pub mac2: [u8; 16],
@@ -31,7 +29,7 @@ impl WgInitHdr {
     /// The message type as a u8 value.
     #[inline]
     pub fn get_type(&self) -> u8 {
-        self.type_
+        self.wg_type
     }
 
     /// Sets the message type.
@@ -39,8 +37,8 @@ impl WgInitHdr {
     /// # Parameters
     /// * `type_` - The message type to set.
     #[inline]
-    pub fn set_type(&mut self, type_: u8) {
-        self.type_ = type_;
+    pub fn set_type(&mut self, wg_type: u8) {
+        self.wg_type = wg_type;
     }
 
     /// Returns the sender ID.
@@ -87,17 +85,15 @@ impl WgInitHdr {
     /// # Returns
     /// An array of 32 bytes containing the encrypted static public key.
     #[inline]
-    pub fn get_static(&self) -> [u8; 32] {
-        self.static_
-    }
+    pub fn get_static(&self) -> [u8; 32] { self.wg_static }
 
     /// Sets the static public key (encrypted).
     ///
     /// # Parameters
     /// * `static_` - An array of 32 bytes to set as the encrypted static public key.
     #[inline]
-    pub fn set_static(&mut self, static_: [u8; 32]) {
-        self.static_ = static_;
+    pub fn set_static(&mut self, wg_static: [u8; 32]) {
+        self.wg_static = wg_static;
     }
 
     /// Returns the timestamp (encrypted).
@@ -169,7 +165,7 @@ impl WgInitHdr {
 #[derive(Debug, Copy, Clone)]
 pub struct WgResHdr {
     // Trailing underscore to prevent collision with reserved rust type keyword.
-    pub type_: u8,
+    pub wg_type: u8,
     pub _reserved: [u8; 3],
     pub sender: [u8; 4],
     pub receiver: [u8; 4],
@@ -188,7 +184,7 @@ impl WgResHdr {
     /// The message type as a u8 value.
     #[inline]
     pub fn get_type(&self) -> u8 {
-        self.type_
+        self.wg_type
     }
 
     /// Sets the message type.
@@ -196,8 +192,8 @@ impl WgResHdr {
     /// # Parameters
     /// * `type_` - The message type to set.
     #[inline]
-    pub fn set_type(&mut self, type_: u8) {
-        self.type_ = type_;
+    pub fn set_type(&mut self, wg_type: u8) {
+        self.wg_type = wg_type;
     }
 
     /// Returns the sender ID.
@@ -310,8 +306,7 @@ impl WgResHdr {
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 pub struct WgTransHdr {
-    // Trailing underscore to prevent collision with reserved rust type keyword.
-    pub type_: u8,
+    pub wg_type: u8,
     pub _reserved: [u8; 3],
     pub receiver: [u8; 4],
     pub counter: [u8; 8],
@@ -329,7 +324,7 @@ impl WgTransHdr {
     /// # Returns
     /// The message type as a u8 value.
     pub fn get_type(&self) -> u8 {
-        u8::from_be(self.type_)
+        u8::from_be(self.wg_type)
     }
 
     /// Sets the message type.
@@ -339,8 +334,8 @@ impl WgTransHdr {
     ///
     /// # Parameters
     /// * `type_` - The message type to set.
-    pub fn set_type(&mut self, type_: u8) {
-        self.type_ = type_.to_be();
+    pub fn set_type(&mut self, wg_type: u8) {
+        self.wg_type = wg_type.to_be();
     }
 
     /// Returns the receiver ID.
@@ -427,7 +422,7 @@ impl<'a> WgTransPktView<'a> {
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 pub struct WgCookieRplHdr {
-    pub type_: u8,
+    pub wg_type: u8,
     pub _reserved: [u8; 3],
     pub receiver: [u8; 4],
     pub nonce: [u8; 24],
@@ -446,7 +441,7 @@ impl WgCookieRplHdr {
     /// # Returns
     /// The message type as a u8 value.
     pub fn get_type(&self) -> u8 {
-        u8::from_be(self.type_)
+        u8::from_be(self.wg_type)
     }
 
     /// Sets the message type.
@@ -456,8 +451,8 @@ impl WgCookieRplHdr {
     ///
     /// # Parameters
     /// * `type_` - The message type to set.
-    pub fn set_type(&mut self, type_: u8) {
-        self.type_ = type_.to_be();
+    pub fn set_type(&mut self, wg_type: u8) {
+        self.wg_type = wg_type.to_be();
     }
 
     /// Returns the receiver ID.
@@ -521,11 +516,11 @@ mod tests {
     // Helper functions to create test headers
     fn create_test_wg_init_hdr() -> WgInitHdr {
         WgInitHdr {
-            type_: 1,
+            wg_type: 1,
             _reserved: [0, 0, 0],
             sender: [1, 2, 3, 4],
             ephemeral: [1; 32],
-            static_: [2; 32],
+            wg_static: [2; 32],
             timestamp: [3; 12],
             mac1: [4; 16],
             mac2: [5; 16],
@@ -534,7 +529,7 @@ mod tests {
 
     fn create_test_wg_res_hdr() -> WgResHdr {
         WgResHdr {
-            type_: 2,
+            wg_type: 2,
             _reserved: [0, 0, 0],
             sender: [5, 6, 7, 8],
             receiver: [1, 2, 3, 4],
@@ -546,7 +541,7 @@ mod tests {
 
     fn create_test_wg_trans_hdr() -> WgTransHdr {
         WgTransHdr {
-            type_: 3,
+            wg_type: 3,
             _reserved: [0, 0, 0],
             receiver: [1, 2, 3, 4],
             counter: [0, 0, 0, 0, 0, 0, 0, 1],
@@ -555,7 +550,7 @@ mod tests {
 
     fn create_test_wg_cookie_rpl_hdr() -> WgCookieRplHdr {
         WgCookieRplHdr {
-            type_: 4,
+            wg_type: 4,
             _reserved: [0, 0, 0],
             receiver: [1, 2, 3, 4],
             nonce: [9; 24],
