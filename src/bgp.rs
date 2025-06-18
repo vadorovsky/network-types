@@ -1,268 +1,442 @@
-use core::convert::TryInto;
-use core::mem;
+//! BGP (Border Gateway Protocol) packet parsing and manipulation.
+//!
+//! This module provides types for creating, parsing, and modifying
+//! BGP packets, designed for efficiency and use in `no_std` environments
+//! like eBPF. It supports standard BGP message types: OPEN, UPDATE,
+//! NOTIFICATION, KEEPALIVE, and ROUTE_REFRESH.
+//!
+//! The main entry point is [`BgpHdr`], which represents the BGP common
+//! header and provides access to the message-specific payloads through
+//! a union. For variable-length messages like UPDATE, additional
+//! "view" and "iterator" types are provided for safe and efficient
+//! access to dynamic content (e.g., withdrawn routes, path attributes).
+//!
+//! # Example: Creating a KEEPALIVE message
+//! ```
+//! # use network_types::bgp::{BgpHdr, BgpMsgType};
+//! // Create a new BGP header for a KEEPALIVE message
+//! let mut hdr = BgpHdr::new(BgpMsgType::KeepAlive);
+//!
+//! // The length is automatically set to the minimum for a KEEPALIVE (19 bytes)
+//! assert_eq!(hdr.length(), 19);
+//! assert_eq!(hdr.msg_type(), Ok(BgpMsgType::KeepAlive));
+//!
+//! // The marker is initialized to all 0xFFs by default
+//! assert_eq!(hdr.marker, [0xff; 16]);
+//! ```
+//!
+//! # Example: Parsing an OPEN message
+//! ```
+//! # use network_types::bgp::{BgpHdr, BgpMsgType, OpenMsgLayout};
+//! # use core::mem;
+//! // A buffer containing a raw BGP OPEN message
+//! let mut buf = [0u8; mem::size_of::<BgpHdr>()];
+//!
+//! // Construct a header for an OPEN message
+//! let mut open_hdr = BgpHdr::new(BgpMsgType::Open);
+//! open_hdr.as_open_mut().unwrap().set_my_as(64512);
+//! open_hdr.as_open_mut().unwrap().set_bgp_id(0xc0a80101); // 192.168.1.1
+//!
+//! // Pretend we received these bytes from the network
+//! let hdr_bytes: &[u8] = unsafe {
+//!     core::slice::from_raw_parts(
+//!         &open_hdr as *const _ as *const u8,
+//!         mem::size_of::<BgpHdr>(),
+//!     )
+//! };
+//! buf.copy_from_slice(hdr_bytes);
+//!
+//! // Get a pointer to the header from the buffer
+//! let hdr: *const BgpHdr = buf.as_ptr() as *const _;
+//!
+//! // Safely access the payload
+//! unsafe {
+//!     assert_eq!((*hdr).msg_type(), Ok(BgpMsgType::Open));
+//!     let open_msg = (*hdr).as_open().unwrap();
+//!     assert_eq!(open_msg.my_as(), 64512);
+//!     assert_eq!(open_msg.bgp_id(), 0xc0a80101);
+//! }
+//! ```
+
+#![allow(clippy::len_without_is_empty)]
+
+use core::{convert::TryFrom, iter::FusedIterator, mem, mem::size_of, ptr};
+
+/// The length of the BGP common header in bytes (16-byte marker + 2-byte length + 1-byte type).
+pub const COMMON_HDR_LEN: usize = 19;
+
+/// Returns the compile‑time payload length for a given message type.
+#[inline(always)]
+const fn payload_len(mt: BgpMsgType) -> usize {
+    match mt {
+        BgpMsgType::Open => OpenMsgLayout::LEN,
+        BgpMsgType::Update => UpdateInitialMsgLayout::LEN,
+        BgpMsgType::Notification => NotificationMsgLayout::LEN,
+        BgpMsgType::KeepAlive => KeepAliveMsgLayout::LEN,
+        BgpMsgType::RouteRefresh => RouteRefreshMsgLayout::LEN,
+    }
+}
+
+/// Reads a big‑endian `u16` from a slice without creating a temporary array.
+#[inline(always)]
+const fn read_u16_be(b: &[u8]) -> u16 {
+    ((b[0] as u16) << 8) | (b[1] as u16)
+}
+
+/// Reads a big‑endian `u32` from a slice without creating a temporary array.
+#[inline(always)]
+const fn read_u32_be(b: &[u8]) -> u32 {
+    ((b[0] as u32) << 24) | ((b[1] as u32) << 16) | ((b[2] as u32) << 8) | (b[3] as u32)
+}
 
 /// Error types that can occur during BGP message parsing or manipulation.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum BgpError {
-    /// Indicates an operation was attempted on a BGP message with a
-    /// message type incompatible with that operation.
-    /// The enclosed `u8` is the actual message type encountered.
+    /// A method requiring a specific BGP message type was invoked on another
+    /// type. The enclosed `u8` is the actual type encountered.
     IncorrectMessageType(u8),
-    /// Indicates that a provided buffer or slice was too short to complete
-    /// the requested operation, potentially leading to out-of-bounds access.
+    /// The supplied slice is too small for the requested operation.
     BufferTooShort,
 }
 
 impl core::fmt::Display for BgpError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            BgpError::IncorrectMessageType(msg_type) => {
-                write!(f, "Incorrect BGP message type for operation: {}", msg_type)
+            BgpError::IncorrectMessageType(t) => {
+                write!(f, "incorrect BGP message type for operation: {}", t)
             }
-            BgpError::BufferTooShort => write!(f, "Buffer too short for operation"),
+            BgpError::BufferTooShort => write!(f, "buffer too short for operation"),
         }
     }
 }
 
-/// Defines the standard BGP message types as per RFC 4271 (Section 4.1)
-/// and RFC 2918 (for ROUTE-REFRESH).
+/// The type of BGP message, as specified in the common header.
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub enum BgpMsgType {
-    /// OPEN message type (1).
+    /// OPEN message, used to establish a BGP session.
     Open = 1,
-    /// UPDATE message type (2).
+    /// UPDATE message, used to transfer routing information.
     Update = 2,
-    /// NOTIFICATION message type (3).
+    /// NOTIFICATION message, used to report errors.
     Notification = 3,
-    /// KEEPALIVE message type (4).
+    /// KEEPALIVE message, used to maintain the BGP session.
     KeepAlive = 4,
-    /// ROUTE-REFRESH message type (5).
+    /// ROUTE_REFRESH message, used to request dynamic route updates.
     RouteRefresh = 5,
 }
 
 impl TryFrom<u8> for BgpMsgType {
     type Error = BgpError;
-
-    /// Attempts to convert a raw `u8` value into a `BgpMsgType`.
-    ///
-    /// # Parameters
-    /// * `value`: The `u8` value representing the BGP message type.
-    ///
-    /// # Returns
-    /// `Ok(BgpMsgType)` if the value corresponds to a known BGP message type,
-    /// otherwise `Err(BgpError::IncorrectMessageType)` with the invalid value.
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            1 => Ok(BgpMsgType::Open),
-            2 => Ok(BgpMsgType::Update),
-            3 => Ok(BgpMsgType::Notification),
-            4 => Ok(BgpMsgType::KeepAlive),
-            5 => Ok(BgpMsgType::RouteRefresh),
-            _ => Err(BgpError::IncorrectMessageType(value)),
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        match v {
+            1 => Ok(Self::Open),
+            2 => Ok(Self::Update),
+            3 => Ok(Self::Notification),
+            4 => Ok(Self::KeepAlive),
+            5 => Ok(Self::RouteRefresh),
+            _ => Err(BgpError::IncorrectMessageType(v)),
         }
     }
 }
 
 /// Represents the fixed-size layout of a BGP OPEN message payload.
-/// (RFC 4271, Section 4.2).
 ///
-/// This structure is `#[repr(C, packed)]` to ensure it matches the on-wire format.
+/// This structure provides methods for safely accessing and modifying the fields
+/// of an OPEN message, handling byte order conversions automatically.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct OpenMsgLayout {
-    /// BGP protocol version number. For BGP-4, this is 4.
+    /// BGP protocol version number. The current version is 4.
     pub version: u8,
-    /// The Autonomous System (AS) number of the sender, in network byte order.
+    /// The Autonomous System (AS) number of the sender. Stored in big-endian format.
     pub my_as: [u8; 2],
-    /// The proposed Hold Time in seconds, in network byte order.
+    /// The proposed time in seconds between KEEPALIVE messages. Stored in big-endian format.
     pub hold_time: [u8; 2],
-    /// The BGP Identifier of the sender, in network byte order. Typically, an IP address.
+    /// A BGP Identifier of the sender, typically the router's IP address. Stored in big-endian format.
     pub bgp_id: [u8; 4],
-    /// The length of the Optional Parameters field in octets.
+    /// The total length of the Optional Parameters field in octets.
     pub opt_parm_len: u8,
 }
 
 impl OpenMsgLayout {
-    /// The length of the fixed part of a BGP OPEN message in bytes.
-    pub const LEN: usize = mem::size_of::<Self>();
+    /// The size of the `OpenMsgLayout` struct in bytes.
+    pub const LEN: usize = size_of::<Self>();
 
-    /// Gets the BGP protocol version.
-    ///
-    /// # Returns
-    /// The `u8` BGP version number.
-    #[inline]
+    /// Gets the BGP version.
+    #[inline(always)]
     pub fn version(&self) -> u8 {
         self.version
     }
 
-    /// Sets the BGP protocol version.
-    ///
-    /// # Parameters
-    /// * `version`: The `u8` BGP version number to set.
-    #[inline]
-    pub fn set_version(&mut self, version: u8) {
-        self.version = version;
+    /// Sets the BGP version.
+    #[inline(always)]
+    pub fn set_version(&mut self, v: u8) {
+        self.version = v;
     }
 
-    /// Gets the sender's Autonomous System (AS) number.
-    ///
-    /// # Returns
-    /// The `u16` AS number, converted from network byte order.
-    #[inline]
+    /// Gets the Autonomous System (AS) number.
+    #[inline(always)]
     pub fn my_as(&self) -> u16 {
-        u16::from_be_bytes(self.my_as)
+        read_u16_be(&self.my_as)
     }
 
-    /// Sets the sender's Autonomous System (AS) number.
-    ///
-    /// # Parameters
-    /// * `my_as`: The `u16` AS number to set (will be converted to network byte order).
-    #[inline]
-    pub fn set_my_as(&mut self, my_as: u16) {
-        self.my_as = my_as.to_be_bytes();
+    /// Sets the Autonomous System (AS) number.
+    #[inline(always)]
+    pub fn set_my_as(&mut self, asn: u16) {
+        self.my_as = asn.to_be_bytes();
     }
 
-    /// Gets the proposed Hold Time in seconds.
-    ///
-    /// # Returns
-    /// The `u16` Hold Time, converted from network byte order.
-    #[inline]
+    /// Gets the hold time in seconds.
+    #[inline(always)]
     pub fn hold_time(&self) -> u16 {
-        u16::from_be_bytes(self.hold_time)
+        read_u16_be(&self.hold_time)
     }
 
-    /// Sets the proposed Hold Time in seconds.
-    ///
-    /// # Parameters
-    /// * `hold_time`: The `u16` Hold Time to set (will be converted to network byte order).
-    #[inline]
-    pub fn set_hold_time(&mut self, hold_time: u16) {
-        self.hold_time = hold_time.to_be_bytes();
+    /// Sets the hold time in seconds.
+    #[inline(always)]
+    pub fn set_hold_time(&mut self, ht: u16) {
+        self.hold_time = ht.to_be_bytes();
     }
 
-    /// Gets the BGP Identifier of the sender.
-    ///
-    /// # Returns
-    /// The `u32` BGP Identifier, converted from network byte order.
-    #[inline]
+    /// Gets the BGP identifier.
+    #[inline(always)]
     pub fn bgp_id(&self) -> u32 {
-        u32::from_be_bytes(self.bgp_id)
+        read_u32_be(&self.bgp_id)
     }
 
-    /// Sets the BGP Identifier of the sender.
-    ///
-    /// # Parameters
-    /// * `bgp_id`: The `u32` BGP Identifier to set (will be converted to network byte order).
-    #[inline]
-    pub fn set_bgp_id(&mut self, bgp_id: u32) {
-        self.bgp_id = bgp_id.to_be_bytes();
+    /// Sets the BGP identifier.
+    #[inline(always)]
+    pub fn set_bgp_id(&mut self, id: u32) {
+        self.bgp_id = id.to_be_bytes();
     }
 
-    /// Gets the length of the Optional Parameters field in octets.
-    ///
-    /// # Returns
-    /// The `u8` length of optional parameters.
-    #[inline]
+    /// Gets the length of the optional parameters field.
+    #[inline(always)]
     pub fn opt_parm_len(&self) -> u8 {
         self.opt_parm_len
     }
 
-    /// Sets the length of the Optional Parameters field in octets.
-    ///
-    /// # Parameters
-    /// * `len`: The `u8` length of optional parameters to set.
-    #[inline]
-    pub fn set_opt_parm_len(&mut self, len: u8) {
-        self.opt_parm_len = len;
+    /// Sets the length of the optional parameters field.
+    #[inline(always)]
+    pub fn set_opt_parm_len(&mut self, l: u8) {
+        self.opt_parm_len = l;
     }
 }
 
-/// Represents the fixed-size layout at the beginning of a BGP UPDATE message.
-/// (RFC 4271, Section 4.3).
+/// Represents the initial, fixed-size part of a BGP UPDATE message payload.
 ///
-/// This structure is `#[repr(C, packed)]` to ensure it matches the on-wire format.
+/// An UPDATE message is composed of several variable-length fields. This struct
+/// represents the first field, which specifies the length of the withdrawn routes list.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct UpdateInitialMsgLayout {
-    /// The length of the Withdrawn Routes field in octets, in network byte order.
+    /// The total length of the Withdrawn Routes field in octets. Stored in big-endian format.
     pub withdrawn_routes_length: [u8; 2],
 }
 
 impl UpdateInitialMsgLayout {
-    /// The length of the fixed part of a BGP UPDATE message in bytes.
-    pub const LEN: usize = mem::size_of::<Self>();
+    /// The size of the `UpdateInitialMsgLayout` struct in bytes.
+    pub const LEN: usize = size_of::<Self>();
 
-    /// Gets the length of the Withdrawn Routes field.
-    ///
-    /// # Returns
-    /// The `u16` length of the Withdrawn Routes field, converted from network byte order.
+    /// Gets the length of the withdrawn routes field.
+    #[inline(always)]
     pub fn get_withdrawn_routes_length(&self) -> u16 {
-        u16::from_be_bytes(self.withdrawn_routes_length)
+        read_u16_be(&self.withdrawn_routes_length)
     }
 
-    /// Sets the length of the Withdrawn Routes field.
-    ///
-    /// # Parameters
-    /// * `len`: The `u16` length to set (will be converted to network byte order).
+    /// Sets the length of the withdrawn routes field.
+    #[inline(always)]
     pub fn set_withdrawn_routes_length(&mut self, len: u16) {
         self.withdrawn_routes_length = len.to_be_bytes();
     }
 }
 
-/// Creates a new `UpdateInitialMsgLayout` with a `withdrawn_routes_length` of zero.
 impl Default for UpdateInitialMsgLayout {
     fn default() -> Self {
         Self {
-            withdrawn_routes_length: [0, 0],
+            withdrawn_routes_length: [0; 2],
         }
     }
 }
 
-/// Represents a single BGP Withdrawn Route, consisting of a prefix length and the prefix itself.
+/// A view into a withdrawn route entry in a BGP UPDATE message.
+///
+/// This represents a single IP prefix being withdrawn from service.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct WithdrawnRoute<'a> {
-    /// The length of the IP address prefix in bits.
+    /// The length of the IP prefix in bits.
     pub length_bits: u8,
-    /// A slice pointing to the raw bytes of the IP address prefix.
+    /// A slice containing the IP prefix itself.
     pub prefix: &'a [u8],
 }
 
-/// A view over a single Path Attribute's data (header + value).
+/// An iterator over withdrawn routes in a BGP UPDATE message.
+///
+/// This iterator parses the Withdrawn Routes field of an UPDATE message on-the-fly.
+#[derive(Debug, Clone)]
+pub struct WithdrawnRoutesIterator<'a> {
+    buffer: &'a [u8],
+}
+
+impl<'a> WithdrawnRoutesIterator<'a> {
+    /// Creates a new iterator over the given buffer.
+    ///
+    /// # Parameters
+    /// * `buffer`: A slice containing the raw bytes of the Withdrawn Routes field.
+    pub fn new(buffer: &'a [u8]) -> Self {
+        Self { buffer }
+    }
+}
+
+impl<'a> Iterator for WithdrawnRoutesIterator<'a> {
+    type Item = WithdrawnRoute<'a>;
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.buffer.is_empty() {
+            return None;
+        }
+        let length_bits = self.buffer[0];
+        let prefix_len_bytes = ((length_bits as usize) + 7) >> 3;
+        let total = 1 + prefix_len_bytes;
+        if self.buffer.len() < total {
+            self.buffer = &[]; // Exhaust the iterator on malformed data
+            return None;
+        }
+        let prefix = &self.buffer[1..total];
+        self.buffer = &self.buffer[total..];
+        Some(WithdrawnRoute {
+            length_bits,
+            prefix,
+        })
+    }
+}
+
+impl<'a> FusedIterator for WithdrawnRoutesIterator<'a> {}
+
+/// A view into a BGP Path Attribute.
+///
+/// Path Attributes are used in UPDATE messages to convey information about network paths.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct PathAttributeView<'a> {
+    /// Attribute flags (Optional, Transitive, Partial, Extended Length).
     pub flags: u8,
+    /// The type code of the attribute (e.g., ORIGIN, AS_PATH, NEXT_HOP).
     pub type_code: u8,
+    /// A slice containing the value of the attribute.
     pub value: &'a [u8],
 }
 
 impl<'a> PathAttributeView<'a> {
-    /// Checks if the "Optional" bit is set.
-    pub fn is_optional(&self) -> bool { (self.flags & 0x80) != 0 }
-    /// Checks if the "Transitive" bit is set.
-    pub fn is_transitive(&self) -> bool { (self.flags & 0x40) != 0 }
-    /// Checks if the "Partial" bit is set.
-    pub fn is_partial(&self) -> bool { (self.flags & 0x20) != 0 }
-    /// Checks if the "Extended Length" bit is set, indicating the length field is 2 bytes.
-    pub fn is_extended_length(&self) -> bool { (self.flags & 0x10) != 0 }
+    /// Checks if the Optional bit is set. Optional attributes do not need to be
+    /// recognized by all BGP implementations.
+    #[inline(always)]
+    pub fn is_optional(&self) -> bool {
+        (self.flags & 0x80) != 0
+    }
+
+    /// Checks if the Transitive bit is set. Transitive attributes should be passed
+    /// along to other BGP neighbors, even if not recognized.
+    #[inline(always)]
+    pub fn is_transitive(&self) -> bool {
+        (self.flags & 0x40) != 0
+    }
+
+    /// Checks if the Partial bit is set. This is set by a BGP speaker that recognizes
+    /// a transitive attribute but has modified it.
+    #[inline(always)]
+    pub fn is_partial(&self) -> bool {
+        (self.flags & 0x20) != 0
+    }
+
+    /// Checks if the Extended Length bit is set. If set, the attribute length field
+    /// is 2 octets; otherwise, it is 1 octet.
+    #[inline(always)]
+    pub fn is_extended_length(&self) -> bool {
+        (self.flags & 0x10) != 0
+    }
 }
 
-/// A view providing safe, zero-copy access to the components of a BGP UPDATE message.
+/// An iterator over path attributes in a BGP UPDATE message.
+///
+/// This iterator parses the Path Attributes field of an UPDATE message on-the-fly.
+#[derive(Debug, Clone)]
+pub struct PathAttributeIterator<'a> {
+    buffer: &'a [u8],
+}
+
+impl<'a> PathAttributeIterator<'a> {
+    /// Creates a new path attribute iterator over the given buffer.
+    ///
+    /// # Parameters
+    /// * `buffer`: A slice containing the raw bytes of the Total Path Attributes field.
+    pub fn new(buffer: &'a [u8]) -> Self {
+        Self { buffer }
+    }
+}
+
+impl<'a> Iterator for PathAttributeIterator<'a> {
+    type Item = PathAttributeView<'a>;
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.buffer.len() < 2 {
+            return None;
+        }
+        let flags = self.buffer[0];
+        let type_code = self.buffer[1];
+        let is_ext = (flags & 0x10) != 0;
+        let (len, hdr_len) = if is_ext {
+            if self.buffer.len() < 4 {
+                return None;
+            }
+            (read_u16_be(&self.buffer[2..]) as usize, 4)
+        } else {
+            if self.buffer.len() < 3 {
+                return None;
+            }
+            (self.buffer[2] as usize, 3)
+        };
+        let end = hdr_len + len;
+        if self.buffer.len() < end {
+            self.buffer = &[]; // Exhaust iterator on malformed data
+            return None;
+        }
+        let val = &self.buffer[hdr_len..end];
+        self.buffer = &self.buffer[end..];
+        Some(PathAttributeView {
+            flags,
+            type_code,
+            value: val,
+        })
+    }
+}
+
+impl<'a> FusedIterator for PathAttributeIterator<'a> {}
+
+/// A read-only view over a BGP UPDATE message's variable-length payload.
+///
+/// This view provides safe access to the different sections of an UPDATE message
+/// that follow the initial fixed-size layout.
 #[derive(Debug, Copy, Clone)]
 pub struct UpdateMessageView<'a> {
     buffer: &'a [u8],
 }
 
 impl<'a> UpdateMessageView<'a> {
-    /// Creates a new view from the full BGP UPDATE message payload.
+    /// Creates a new `UpdateMessageView` from a buffer.
     ///
     /// # Parameters
-    /// * `buffer`: A slice representing the UPDATE message payload (excluding the common BGP header).
+    /// * `buffer`: A slice containing the BGP UPDATE message payload, starting *after*
+    ///   the common BGP header.
     ///
     /// # Returns
-    /// `Some(Self)` if the buffer is large enough for the initial fixed-size layout, `None` otherwise.
+    /// `Some(UpdateMessageView)` if the buffer is large enough for the initial layout,
+    /// `None` otherwise.
     pub fn new(buffer: &'a [u8]) -> Option<Self> {
         if buffer.len() < UpdateInitialMsgLayout::LEN {
             return None;
@@ -270,344 +444,238 @@ impl<'a> UpdateMessageView<'a> {
         Some(Self { buffer })
     }
 
-    /// Provides safe access to the initial fixed-layout portion of the header.
-    fn initial_layout(&self) -> &UpdateInitialMsgLayout {
-        unsafe { &*(self.buffer.as_ptr() as *const UpdateInitialMsgLayout) }
+    /// Reads the initially fixed layout (unaligned-safe).
+    #[inline(always)]
+    fn initial_layout(&self) -> UpdateInitialMsgLayout {
+        // Safety: The `new` method ensures the buffer is long enough to read `UpdateInitialMsgLayout`.
+        unsafe { ptr::read_unaligned(self.buffer.as_ptr() as *const _) }
     }
 
-    /// Returns an iterator over the Withdrawn Routes in the message.
+    /// Returns an iterator over the withdrawn routes.
     ///
-    /// The iterator will parse the Withdrawn Routes field based on the length specified
-    /// in the UPDATE message header. It handles cases where the specified length
-    /// exceeds the buffer by iterating only over the available bytes.
-    ///
-    /// # Returns
-    /// A `WithdrawnRoutesIterator` to traverse the withdrawn routes.
+    /// The iterator will be empty if the withdrawn routes length is zero. It may
+    /// also stop early if the buffer is shorter than indicated by the length field.
     pub fn withdrawn_routes_iter(&self) -> WithdrawnRoutesIterator<'a> {
         let len = self.initial_layout().get_withdrawn_routes_length() as usize;
         let start = UpdateInitialMsgLayout::LEN;
         let end = start.saturating_add(len);
-        let buffer = if end > self.buffer.len() {
-            &self.buffer[start..self.buffer.len()]
+        let buf = if end > self.buffer.len() {
+            // Provide a potentially truncated buffer; the iterator will handle it.
+            &self.buffer[start..]
         } else {
             &self.buffer[start..end]
         };
-        WithdrawnRoutesIterator::new(buffer)
+        WithdrawnRoutesIterator::new(buf)
     }
 
-    /// Returns an iterator over the Path Attributes in the message.
+    /// Returns an iterator over the path attributes.
     ///
     /// # Returns
-    /// `Some(PathAttributeIterator)` if the message contains a valid Path Attributes field.
-    /// Returns `None` if the message is too short to contain the path attribute length,
-    /// or if the path attributes block is malformed or has a length of zero.
+    /// `Some(PathAttributeIterator)` if path attributes are present and the buffer
+    /// is large enough to contain their length field. `None` otherwise.
     pub fn path_attributes_iter(&self) -> Option<PathAttributeIterator<'a>> {
         let withdrawn_len = self.initial_layout().get_withdrawn_routes_length() as usize;
-        let path_attr_len_offset = UpdateInitialMsgLayout::LEN.saturating_add(withdrawn_len);
-
-        if self.buffer.len() < path_attr_len_offset.saturating_add(2) { return None; }
-
-        let len_bytes = [self.buffer[path_attr_len_offset], self.buffer[path_attr_len_offset + 1]];
-        let path_attr_block_len = u16::from_be_bytes(len_bytes) as usize;
-
-        if path_attr_block_len == 0 { return None; }
-
-        let path_attr_start = path_attr_len_offset + 2;
-        let path_attr_end = path_attr_start.saturating_add(path_attr_block_len);
-
-        if path_attr_end > self.buffer.len() { return None; }
-
-        Some(PathAttributeIterator::new(&self.buffer[path_attr_start..path_attr_end]))
+        let offset = UpdateInitialMsgLayout::LEN + withdrawn_len;
+        if self.buffer.len() < offset + 2 {
+            return None;
+        }
+        let block_len = read_u16_be(&self.buffer[offset..]) as usize;
+        if block_len == 0 {
+            // No path attributes are present.
+            return None;
+        }
+        let start = offset + 2;
+        let end = start + block_len;
+        if end > self.buffer.len() {
+            // Buffer is too short to contain the advertised path attributes.
+            return None;
+        }
+        Some(PathAttributeIterator::new(&self.buffer[start..end]))
     }
 
     /// Returns a slice containing the Network Layer Reachability Information (NLRI).
     ///
+    /// The NLRI field contains the list of new routes being advertised.
+    ///
     /// # Returns
-    /// `Some(&'a [u8])` containing the NLRI data if present.
-    /// Returns `None` if the message is malformed, or if Total Path Attribute Length is 0,
-    /// as the NLRI field follows the Path Attributes.
+    /// `Some(&[u8])` containing the NLRI data, or `None` if the message is too short
+    /// to contain the path attributes and NLRI fields.
     pub fn nlri(&self) -> Option<&'a [u8]> {
         let withdrawn_len = self.initial_layout().get_withdrawn_routes_length() as usize;
-        let path_attr_len_offset = UpdateInitialMsgLayout::LEN.saturating_add(withdrawn_len);
-
-        if self.buffer.len() < path_attr_len_offset.saturating_add(2) { return None; }
-
-        let len_bytes = [self.buffer[path_attr_len_offset], self.buffer[path_attr_len_offset + 1]];
-        let path_attr_block_len = u16::from_be_bytes(len_bytes) as usize;
-
-        if path_attr_block_len == 0 { return None; }
-
-        let nlri_start = path_attr_len_offset + 2 + path_attr_block_len;
-        if nlri_start > self.buffer.len() { return None; }
-
-        Some(&self.buffer[nlri_start..])
-    }
-}
-
-/// An iterator that parses a block of Withdrawn Route `(Length, Prefix)` tuples.
-#[derive(Debug, Clone)]
-pub struct WithdrawnRoutesIterator<'a> {
-    buffer: &'a [u8],
-}
-
-impl<'a> WithdrawnRoutesIterator<'a> {
-    /// Creates a new iterator for a Withdrawn Routes data block.
-    ///
-    /// # Parameters
-    /// * `buffer`: A slice containing the raw bytes of the Withdrawn Routes field.
-    pub fn new(buffer: &'a [u8]) -> Self { Self { buffer } }
-}
-
-impl<'a> Iterator for WithdrawnRoutesIterator<'a> {
-    type Item = WithdrawnRoute<'a>;
-
-    /// Parses and returns the next withdrawn route from the buffer.
-    ///
-    /// Each call to `next` attempts to read a length byte, calculate the
-    /// corresponding prefix byte length, and extract the route.
-    ///
-    /// # Returns
-    /// `Some(WithdrawnRoute)` if a complete route is parsed successfully.
-    /// `None` if the remaining buffer is empty or too small to contain a valid route.
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.buffer.len() < 1 { return None; }
-        let length_bits = self.buffer[0];
-        let prefix_len_bytes = ((length_bits + 7) / 8) as usize;
-        let total_record_len = 1 + prefix_len_bytes;
-        if self.buffer.len() < total_record_len {
-            self.buffer = &[];
+        let offset = UpdateInitialMsgLayout::LEN + withdrawn_len;
+        if self.buffer.len() < offset + 2 {
             return None;
         }
-        let prefix = &self.buffer[1..total_record_len];
-        self.buffer = &self.buffer[total_record_len..];
-        Some(WithdrawnRoute { length_bits, prefix })
-    }
-}
-
-/// An iterator that parses a sequence of BGP Path Attributes.
-#[derive(Debug, Clone)]
-pub struct PathAttributeIterator<'a> {
-    buffer: &'a [u8],
-}
-
-impl<'a> PathAttributeIterator<'a> {
-    /// Creates a new iterator for a Path Attributes data block.
-    ///
-    /// # Parameters
-    /// * `buffer`: A slice containing the raw bytes of the Total Path Attributes field.
-    pub fn new(buffer: &'a [u8]) -> Self { Self { buffer } }
-}
-
-impl<'a> Iterator for PathAttributeIterator<'a> {
-    type Item = PathAttributeView<'a>;
-
-    /// Parses and returns the next path attribute from the buffer.
-    ///
-    /// Handles both standard and extended-length attributes based on the attribute flags.
-    ///
-    /// # Returns
-    /// `Some(PathAttributeView)` if a complete attribute is parsed successfully.
-    /// `None` if the remaining buffer is empty or too small for the next attribute's header or value.
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.buffer.len() < 2 { return None; }
-
-        let flags = self.buffer[0];
-        let type_code = self.buffer[1];
-        let is_extended = (flags & 0x10) != 0;
-
-        let (len, data_offset) = if is_extended {
-            if self.buffer.len() < 4 { return None; }
-            (u16::from_be_bytes([self.buffer[2], self.buffer[3]]) as usize, 4)
-        } else {
-            if self.buffer.len() < 3 { return None; }
-            (self.buffer[2] as usize, 3)
-        };
-
-        let total_attr_len = data_offset + len;
-        if self.buffer.len() < total_attr_len {
-            self.buffer = &[];
+        let pa_len = read_u16_be(&self.buffer[offset..]) as usize;
+        if pa_len == 0 {
+            // This case might be ambiguous, but if pa_len is 0, start is where NLRI begins.
+            let start = offset + 2;
+            if start > self.buffer.len() {
+                return None;
+            }
+            return Some(&self.buffer[start..]);
+        }
+        let start = offset + 2 + pa_len;
+        if start > self.buffer.len() {
             return None;
         }
-
-        let value = &self.buffer[data_offset..total_attr_len];
-        self.buffer = &self.buffer[total_attr_len..];
-
-        Some(PathAttributeView { flags, type_code, value })
+        Some(&self.buffer[start..])
     }
 }
 
-/// A generic writer for serializing a sequence of (Length, Prefix) tuples.
+/// A helper for writing BGP prefixes into a buffer.
 ///
-/// This is used for writing both Withdrawn Routes and NLRI data, which share the same format.
+/// This is used for constructing the Withdrawn Routes and NLRI fields of an UPDATE message.
 pub struct PrefixWriter<'a> {
     buffer: &'a mut [u8],
     cursor: usize,
 }
 
 impl<'a> PrefixWriter<'a> {
-    /// Creates a new writer for a prefix data block.
-    ///
-    /// # Parameters
-    /// * `buffer`: The mutable slice where prefix data will be written.
+    /// Creates a new `PrefixWriter` for the given buffer.
     pub fn new(buffer: &'a mut [u8]) -> Self {
         Self { buffer, cursor: 0 }
     }
 
-    /// Appends a new prefix to the buffer.
+    /// Appends a prefix to the buffer.
+    ///
+    /// A prefix is encoded as `(length_in_bits, prefix_bytes)`.
     ///
     /// # Parameters
     /// * `length_bits`: The length of the prefix in bits.
-    /// * `prefix`: A slice containing the raw bytes of the prefix.
+    /// * `prefix`: A slice containing the prefix bytes. Its length must match the
+    ///   byte-length calculated from `length_bits`.
     ///
     /// # Returns
-    /// `Ok(())` on success.
-    /// `Err(&'static str)` if the provided prefix byte length doesn't match its
-    /// bit-length, or if the buffer is too small.
+    /// `Ok(())` on success, or an error message if the buffer is too small or the
+    /// prefix length is incorrect.
     pub fn push(&mut self, length_bits: u8, prefix: &[u8]) -> Result<(), &'static str> {
-        let prefix_len_bytes = ((length_bits + 7) / 8) as usize;
-        if prefix.len() != prefix_len_bytes {
-            return Err("Prefix byte length does not match its bit-length");
+        let prefix_bytes = ((length_bits as usize) + 7) >> 3;
+        if prefix.len() != prefix_bytes {
+            return Err("prefix byte length does not match bit-length");
         }
-
-        let record_len = 1 + prefix_len_bytes;
+        let record_len = 1 + prefix_bytes;
         if self.cursor + record_len > self.buffer.len() {
-            return Err("Buffer too small for new prefix");
+            return Err("buffer too small for new prefix");
         }
-
-        self.buffer[self.cursor] = length_bits;
-        self.buffer[self.cursor + 1..self.cursor + record_len].copy_from_slice(prefix);
+        let dst = &mut self.buffer[self.cursor..self.cursor + record_len];
+        dst[0] = length_bits;
+        dst[1..].copy_from_slice(prefix);
         self.cursor += record_len;
         Ok(())
     }
 }
 
-/// A writer for serializing a sequence of BGP Path Attributes.
+/// A helper for writing BGP path attributes into a buffer.
 pub struct PathAttributeWriter<'a> {
     buffer: &'a mut [u8],
     cursor: usize,
 }
 
 impl<'a> PathAttributeWriter<'a> {
-    /// Creates a new writer for a path attribute data block.
-    ///
-    /// # Parameters
-    /// * `buffer`: The mutable slice where path attribute data will be written.
+    /// Creates a new `PathAttributeWriter` for the given buffer.
     pub fn new(buffer: &'a mut [u8]) -> Self {
         Self { buffer, cursor: 0 }
     }
 
-    /// Appends a new path attribute to the buffer.
+    /// Appends a path attribute to the buffer.
     ///
-    /// Automatically handles setting the "Extended Length" flag if the `value`
-    /// is longer than 255 bytes.
+    /// This method automatically handles setting the "Extended Length" flag if the
+    /// attribute value is longer than 255 bytes.
     ///
     /// # Parameters
-    /// * `flags`: The attribute flags (e.g., Optional, Transitive).
+    /// * `flags`: The attribute flags (Optional, Transitive, Partial). The Extended Length
+    ///   bit will be set automatically if needed.
     /// * `type_code`: The attribute type code.
-    /// * `value`: A slice containing the attribute's value.
+    /// * `value`: The attribute value.
     ///
     /// # Returns
-    /// `Ok(())` on success.
-    /// `Err(&'static str)` if the buffer is too small for the new attribute.
+    /// `Ok(())` on success, or an error message if the buffer is too small.
     pub fn push(&mut self, flags: u8, type_code: u8, value: &[u8]) -> Result<(), &'static str> {
-        let is_extended = value.len() > 255;
-        let flags = if is_extended { flags | 0x10 } else { flags };
-
-        let len_field_size = if is_extended { 2 } else { 1 };
-        let header_size = 2 + len_field_size;
-        let total_attr_len = header_size + value.len();
-
-        if self.cursor + total_attr_len > self.buffer.len() {
-            return Err("Buffer too small for new path attribute");
+        let is_ext = value.len() > 255;
+        let flags = if is_ext { flags | 0x10 } else { flags };
+        let len_field = if is_ext { 2 } else { 1 };
+        let header = 2 + len_field;
+        let total = header + value.len();
+        if self.cursor + total > self.buffer.len() {
+            return Err("buffer too small for new path attribute");
         }
-
-        let current = &mut self.buffer[self.cursor..];
-        current[0] = flags;
-        current[1] = type_code;
-
-        if is_extended {
-            current[2..4].copy_from_slice(&(value.len() as u16).to_be_bytes());
+        let dst = &mut self.buffer[self.cursor..self.cursor + total];
+        dst[0] = flags;
+        dst[1] = type_code;
+        if is_ext {
+            dst[2..4].copy_from_slice(&(value.len() as u16).to_be_bytes());
         } else {
-            current[2] = value.len() as u8;
+            dst[2] = value.len() as u8;
         }
+        dst[header..].copy_from_slice(value);
 
-        current[header_size..total_attr_len].copy_from_slice(value);
-        self.cursor += total_attr_len;
+        self.cursor += total;
         Ok(())
     }
 }
 
-/// A writer that structures a mutable buffer to be filled with BGP UPDATE message data.
+/// A helper for constructing the body of a BGP UPDATE message.
+///
+/// This writer helps structure the complex, variable-length payload of an UPDATE message.
 pub struct UpdateMessageWriter<'a> {
     buffer: &'a mut [u8],
 }
 
 impl<'a> UpdateMessageWriter<'a> {
-    /// Creates a new writer for a BGP UPDATE message from a mutable byte slice.
+    /// Creates a new `UpdateMessageWriter` from a buffer.
     ///
-    /// The buffer should represent the entire UPDATE message payload (excluding the common BGP header).
+    /// The buffer must be large enough to hold at least the two length fields
+    /// (Withdrawn Routes Length and Total Path Attributes Length), which is 4 bytes.
     ///
     /// # Parameters
-    /// * `buffer`: A mutable slice that will contain the UPDATE message payload.
+    /// * `buffer`: The mutable slice where the UPDATE message payload will be written.
     ///
     /// # Returns
-    /// `Some(Self)` if the buffer is at least 4 bytes long (the minimum for length fields),
-    /// otherwise `None`.
+    /// `Some(UpdateMessageWriter)` on success, `None` if the buffer is too small.
     pub fn new(buffer: &'a mut [u8]) -> Option<Self> {
-        if buffer.len() < 4 { // Minimal length for withdrawn_len (2) + path_attr_len (2)
-            return None;
+        if buffer.len() < 4 {
+            None
+        } else {
+            Some(Self { buffer })
         }
-        Some(Self { buffer })
     }
 
-    /// Writes the length fields to structure the buffer and returns sub-writers for each section.
+    /// Prepares the UPDATE message structure and returns writers for its sections.
     ///
-    /// This method partitions the underlying buffer into three distinct sections for
-    /// writing Withdrawn Routes, Path Attributes, and NLRI. It writes the length
-    /// fields for the first two sections into the buffer before returning the writers.
+    /// This method writes the `Withdrawn Routes Length` and `Total Path Attribute Length`
+    /// fields into the buffer and then provides three section-specific writers.
     ///
     /// # Parameters
-    /// * `withdrawn_len`: The total length in bytes of the Withdrawn Routes section.
-    /// * `path_attr_len`: The total length in bytes of the Path Attributes section.
+    /// * `withdrawn_len`: The total length in bytes of the withdrawn routes section.
+    /// * `path_attr_len`: The total length in bytes of the path attributes section.
     ///
     /// # Returns
-    /// On success, a tuple `(PrefixWriter, PathAttributeWriter, PrefixWriter)` for the
-    /// Withdrawn Routes, Path Attributes, and NLRI sections, respectively.
+    /// A `Result` containing a tuple of writers for:
+    /// 1. Withdrawn Routes (`PrefixWriter`)
+    /// 2. Path Attributes (`PathAttributeWriter`)
+    /// 3. NLRI (`PrefixWriter`)
     ///
-    /// # Errors
-    /// Returns `Err(&'static str)` if the sum of the specified lengths exceeds the buffer's capacity.
+    /// Returns an error if the provided lengths exceed the buffer's capacity.
     pub fn structure(
         &mut self,
         withdrawn_len: u16,
         path_attr_len: u16,
-    ) -> Result<
-        (
-            PrefixWriter,
-            PathAttributeWriter,
-            PrefixWriter,
-        ),
-        &'static str,
-    > {
-        let withdrawn_len_usize = withdrawn_len as usize;
-        let path_attr_len_usize = path_attr_len as usize;
-
-        // Required length: 2 bytes for withdrawn_len, the withdrawn data,
-        // 2 bytes for path_attr_len, and the path_attr data.
-        let required_len = 2 + withdrawn_len_usize + 2 + path_attr_len_usize;
-        if self.buffer.len() < required_len {
-            return Err("Provided lengths exceed buffer capacity");
+    ) -> Result<(PrefixWriter<'_>, PathAttributeWriter<'_>, PrefixWriter<'_>), &'static str> {
+        let w = withdrawn_len as usize;
+        let p = path_attr_len as usize;
+        // 2 bytes for withdrawn_len, 2 for path_attr_len
+        let need = 2 + w + 2 + p;
+        if self.buffer.len() < need {
+            return Err("provided lengths exceed buffer");
         }
-
-        // Write Withdrawn Routes Length
+        // write lengths
         self.buffer[0..2].copy_from_slice(&withdrawn_len.to_be_bytes());
-        // Calculate and write Total Path Attributes Length
-        let pa_len_offset = 2 + withdrawn_len_usize;
-        self.buffer[pa_len_offset..pa_len_offset + 2].copy_from_slice(&path_attr_len.to_be_bytes());
-
-        // Split the buffer to create writers for each section
-        let (wr_buf, rest) = self.buffer[2..].split_at_mut(withdrawn_len_usize);
-        let (pa_buf, nlri_buf) = rest[2..].split_at_mut(path_attr_len_usize);
-
+        let pa_off = 2 + w;
+        self.buffer[pa_off..pa_off + 2].copy_from_slice(&path_attr_len.to_be_bytes());
+        // create writers for sections
+        let (wr_buf, rest) = self.buffer[2..].split_at_mut(w);
+        let (pa_buf, nlri_buf) = rest[2..].split_at_mut(p);
         Ok((
             PrefixWriter::new(wr_buf),
             PathAttributeWriter::new(pa_buf),
@@ -616,159 +684,113 @@ impl<'a> UpdateMessageWriter<'a> {
     }
 }
 
-/// Represents the fixed-size layout of a BGP NOTIFICATION message payload.
-/// (RFC 4271, Section 4.5).
+/// Represents the layout of a BGP NOTIFICATION message payload.
 ///
-/// This structure is `#[repr(C, packed)]` to ensure it matches the on-wire format.
+/// This message is sent to report errors.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct NotificationMsgLayout {
-    /// The error code indicating the type of BGP error.
+    /// Indicates the type of error.
     pub error_code: u8,
-    /// The error subcode providing more specific information about the error.
+    /// Provides more specific information about the reported error.
     pub error_subcode: u8,
 }
-
 impl NotificationMsgLayout {
-    /// The length of the BGP NOTIFICATION message payload in bytes.
-    pub const LEN: usize = mem::size_of::<Self>();
+    /// The size of the `NotificationMsgLayout` struct in bytes.
+    pub const LEN: usize = size_of::<Self>();
 
     /// Gets the error code.
-    ///
-    /// # Returns
-    /// The `u8` error code.
-    #[inline]
+    #[inline(always)]
     pub fn error_code(&self) -> u8 {
         self.error_code
     }
-
     /// Sets the error code.
-    ///
-    /// # Parameters
-    /// * `code`: The `u8` error code to set.
-    #[inline]
-    pub fn set_error_code(&mut self, code: u8) {
-        self.error_code = code;
+    #[inline(always)]
+    pub fn set_error_code(&mut self, c: u8) {
+        self.error_code = c;
     }
-
     /// Gets the error subcode.
-    ///
-    /// # Returns
-    /// The `u8` error subcode.
-    #[inline]
+    #[inline(always)]
     pub fn error_subcode(&self) -> u8 {
         self.error_subcode
     }
-
     /// Sets the error subcode.
-    ///
-    /// # Parameters
-    /// * `subcode`: The `u8` error subcode to set.
-    #[inline]
-    pub fn set_error_subcode(&mut self, subcode: u8) {
-        self.error_subcode = subcode;
+    #[inline(always)]
+    pub fn set_error_subcode(&mut self, s: u8) {
+        self.error_subcode = s;
     }
 }
 
-/// Represents the fixed-size layout of a BGP KEEPALIVE message payload.
-/// (RFC 4271, Section 4.4).
+/// Represents the layout of a BGP KEEPALIVE message payload.
 ///
-/// KEEPALIVE messages only consist of the BGP header; they have no additional payload.
-/// This structure is `#[repr(C, packed)]`.
+/// A KEEPALIVE message has no payload, so this is a zero-sized struct.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct KeepAliveMsgLayout {}
-
 impl KeepAliveMsgLayout {
-    /// The length of the BGP KEEPALIVE message payload in bytes (always 0).
-    pub const LEN: usize = mem::size_of::<Self>();
+    /// The size of the `KeepAliveMsgLayout` struct in bytes (which is 0).
+    pub const LEN: usize = size_of::<Self>();
 }
 
-/// Represents the fixed-size layout of a BGP ROUTE-REFRESH message payload.
-/// (RFC 2918, Section 3).
-///
-/// This structure is `#[repr(C, packed)]` to ensure it matches the on-wire format.
+/// Represents the layout of a BGP ROUTE-REFRESH message payload.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct RouteRefreshMsgLayout {
-    /// Address Family Identifier (AFI), in network byte order.
+    /// Address Family Identifier (e.g., IPv4, IPv6). Stored in big-endian format.
     pub afi: [u8; 2],
-    /// Reserved field should be set to 0.
+    /// This field is reserved and should be set to 0.
     pub _reserved: u8,
-    /// Subsequent Address Family Identifier (SAFI), in network byte order.
+    /// Subsequent Address Family Identifier (e.g., Unicast, Multicast).
     pub safi: u8,
 }
-
 impl RouteRefreshMsgLayout {
-    /// The length of the BGP ROUTE-REFRESH message payload in bytes.
+    /// The size of the `RouteRefreshMsgLayout` struct in bytes.
     pub const LEN: usize = mem::size_of::<Self>();
 
     /// Gets the Address Family Identifier (AFI).
-    ///
-    /// # Returns
-    /// The `u16` AFI, converted from network byte order.
-    #[inline]
+    #[inline(always)]
     pub fn afi(&self) -> u16 {
-        u16::from_be_bytes(self.afi)
+        read_u16_be(&self.afi)
     }
-
     /// Sets the Address Family Identifier (AFI).
-    ///
-    /// # Parameters
-    /// * `afi`: The `u16` AFI to set (will be converted to network byte order).
-    #[inline]
+    #[inline(always)]
     pub fn set_afi(&mut self, afi: u16) {
         self.afi = afi.to_be_bytes();
     }
 
-    /// Gets the reserved field value.
-    ///
-    /// # Returns
-    /// The `u8` value of the reserved field.
-    #[inline]
+    /// Gets the reserved field.
+    #[inline(always)]
     pub fn res(&self) -> u8 {
         self._reserved
     }
-
-    /// Sets the reserved field value. This should typically be 0.
-    ///
-    /// # Parameters
-    /// * `res`: The `u8` value for the reserved field.
-    #[inline]
-    pub fn set_res(&mut self, res: u8) {
-        self._reserved = res;
+    /// Sets the reserved field.
+    #[inline(always)]
+    pub fn set_res(&mut self, r: u8) {
+        self._reserved = r;
     }
 
     /// Gets the Subsequent Address Family Identifier (SAFI).
-    ///
-    /// # Returns
-    /// The `u8` SAFI.
-    #[inline]
+    #[inline(always)]
     pub fn safi(&self) -> u8 {
         self.safi
     }
-
     /// Sets the Subsequent Address Family Identifier (SAFI).
-    ///
-    /// # Parameters
-    /// * `safi`: The `u8` SAFI to set.
-    #[inline]
-    pub fn set_safi(&mut self, safi: u8) {
-        self.safi = safi;
+    #[inline(always)]
+    pub fn set_safi(&mut self, s: u8) {
+        self.safi = s;
     }
 }
 
-/// A union to hold the specific payload structure for different BGP message types.
+/// A union holding the payload for any BGP message type.
 ///
-/// This union is part of `BgpHdr` and allows interpreting the `data` field
-/// based on the `msg_type`.
-/// It is `#[repr(C, packed)]` as it's embedded in `BgpHdr`.
+/// This allows `BgpHdr` to store the fixed-size portion of any BGP message
+/// payload in a memory-efficient way. Access to the variants should be
+/// guarded by a check of the message type.
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub union BgpMsgUn {
     /// Payload for an OPEN message.
     pub open: OpenMsgLayout,
@@ -776,72 +798,56 @@ pub union BgpMsgUn {
     pub update: UpdateInitialMsgLayout,
     /// Payload for a NOTIFICATION message.
     pub notification: NotificationMsgLayout,
-    /// Payload for a KEEPALIVE message (empty).
+    /// Payload for a KEEPALIVE message (zero-sized).
     pub keep_alive: KeepAliveMsgLayout,
     /// Payload for a ROUTE-REFRESH message.
     pub route_refresh: RouteRefreshMsgLayout,
 }
 
 impl Default for BgpMsgUn {
-    /// Provides a default value for `BgpMsgUn`.
-    /// Initializes with a default `OpenMsgLayout`.
     fn default() -> Self {
-        BgpMsgUn {
+        Self {
             open: OpenMsgLayout::default(),
         }
     }
 }
 
-/// Represents a BGP message header and its associated fixed-payload data.
-/// (RFC 4271, Section 4.1).
+/// Represents a BGP message header and its fixed-size payload part.
 ///
-/// This structure is `#[repr(C, packed)]` to ensure it matches the on-wire format
-/// for the BGP header and the start of its payload. The `data` field is a union
-/// that can be interpreted based on the `msg_type`.
+/// This struct provides a unified interface for working with different BGP messages.
+/// It contains the common header fields (marker, length, type) and a union (`BgpMsgUn`)
+/// for the initial, fixed-size part of the message payload.
+///
+/// For messages with variable-length data (like UPDATE), you must use other "view"
+/// types (e.g., `UpdateMessageView`) to parse the data that follows this header.
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct BgpHdr {
-    /// The 16-octet marker field. For messages other than early BGP versions,
-    /// this field is typically all ones (0xFF).
+    /// 16-byte field to detect mis-synchronization; must be all ones.
     pub marker: [u8; 16],
-    /// The total length of the BGP message in octets, including the header,
-    /// in network byte order.
+    /// Total length of the BGP message in octets, including the header. Stored in big-endian format.
     pub length: [u8; 2],
-    /// The BGP message type code (e.g., OPEN, UPDATE).
+    /// The type of BGP message. See `BgpMsgType`.
     pub msg_type: u8,
-    /// A union holding the fixed part of the message payload, specific to the `msg_type`.
-    /// Access to this field should be guarded by checking `msg_type` or using
-    /// the appropriate `as_...()` or `as_..._unchecked()` methods.
+    /// A union containing the fixed-size portion of the message-specific data.
     pub data: BgpMsgUn,
 }
 
 impl BgpHdr {
-    /// The minimum length of a BGP header if it were to encapsulate the largest
-    /// fixed-size payload defined in `BgpMsgUn` (which is `OpenMsgLayout`).
-    /// This is `19 (common header) + size_of(OpenMsgLayout)`.
-    /// Note: The actual on-wire length is stored in the `length` field of the header.
+    /// The size of the `BgpHdr` struct in bytes. This is the minimum possible
+    /// BGP message length (for a KEEPALIVE).
     pub const LEN: usize = mem::size_of::<Self>();
 
-    /// Creates a new `BgpHdr` initialized for a specific `BgpMsgType`.
-    /// The marker is set to all ones, and the length is calculated based on the
-    /// common header size (19 bytes) plus the size of the fixed payload for the given message type.
-    /// The specific payload part within `data` is default-initialized.
+    /// Creates a new `BgpHdr` for the specified message type.
+    ///
+    /// It initializes the marker to all `0xFF`, sets the message type, calculates
+    /// the initial total length based on the message type's fixed payload size,
+    /// and zero-initializes the payload data.
     ///
     /// # Parameters
     /// * `msg_type`: The `BgpMsgType` for the new header.
-    ///
-    /// # Returns
-    /// A new `BgpHdr` instance.
     pub fn new(msg_type: BgpMsgType) -> Self {
-        let common_header_len = 19;
-        let specific_payload_len = match msg_type {
-            BgpMsgType::Open => OpenMsgLayout::LEN,
-            BgpMsgType::Update => UpdateInitialMsgLayout::LEN,
-            BgpMsgType::Notification => NotificationMsgLayout::LEN,
-            BgpMsgType::KeepAlive => KeepAliveMsgLayout::LEN,
-            BgpMsgType::RouteRefresh => RouteRefreshMsgLayout::LEN,
-        };
+        let total_len = (COMMON_HDR_LEN + payload_len(msg_type)) as u16;
         let data = match msg_type {
             BgpMsgType::Open => BgpMsgUn {
                 open: OpenMsgLayout::default(),
@@ -859,489 +865,417 @@ impl BgpHdr {
                 route_refresh: RouteRefreshMsgLayout::default(),
             },
         };
-        BgpHdr {
+
+        Self {
             marker: [0xff; 16],
-            length: ((common_header_len + specific_payload_len) as u16).to_be_bytes(),
+            length: total_len.to_be_bytes(),
             msg_type: msg_type as u8,
             data,
         }
     }
 
-    /// Sets the marker field to all ones (0xFF).
-    /// This is the standard marker value for BGP-4.
-    #[inline]
+    /// Sets the 16-byte marker field to all ones, as required by the BGP specification.
+    #[inline(always)]
     pub fn set_marker_to_ones(&mut self) {
         self.marker = [0xff; 16];
     }
 
-    /// Gets the total length of the BGP message (header and payload) in octets.
-    ///
-    /// # Returns
-    /// The `u16` length, converted from network byte order.
-    #[inline]
+    /// Gets the total length of the BGP message in bytes.
+    #[inline(always)]
     pub fn length(&self) -> u16 {
-        u16::from_be_bytes(self.length)
+        read_u16_be(&self.length)
     }
 
-    /// Sets the total length of the BGP message.
-    ///
-    /// # Parameters
-    /// * `length`: The `u16` total length to set (will be converted to network byte order).
-    #[inline]
-    pub fn set_length(&mut self, length: u16) {
-        self.length = length.to_be_bytes();
+    /// Sets the total length of the BGP message in bytes.
+    #[inline(always)]
+    pub fn set_length(&mut self, l: u16) {
+        self.length = l.to_be_bytes();
     }
 
-    /// Gets the raw `u8` value of the BGP message type.
-    ///
-    /// # Returns
-    /// The `u8` message type code.
-    #[inline]
+    /// Gets the raw message type as a `u8`.
+    #[inline(always)]
     pub fn msg_type_raw(&self) -> u8 {
         self.msg_type
     }
 
-    /// Gets the BGP message type as an enum.
+    /// Gets the message type as a `BgpMsgType` enum.
     ///
     /// # Returns
-    /// `Ok(BgpMsgType)` if the raw type is valid, otherwise `Err(BgpError::IncorrectMessageType)`.
-    #[inline]
+    /// `Ok(BgpMsgType)` if the type is valid, or `Err(BgpError::IncorrectMessageType)`
+    /// if the raw type byte is not a known BGP message type.
+    #[inline(always)]
     pub fn msg_type(&self) -> Result<BgpMsgType, BgpError> {
         BgpMsgType::try_from(self.msg_type)
     }
 
-    /// Sets the BGP message type using the `BgpMsgType` enum.
-    ///
-    /// # Parameters
-    /// * `type_val`: The `BgpMsgType` to set.
-    #[inline]
-    pub fn set_msg_type(&mut self, type_val: BgpMsgType) {
-        self.msg_type = type_val as u8;
+    /// Sets the message type from a `BgpMsgType` enum.
+    #[inline(always)]
+    pub fn set_msg_type(&mut self, t: BgpMsgType) {
+        self.msg_type = t as u8;
     }
 
-    /// Sets the BGP message type using a raw `u8` value.
-    ///
-    /// # Parameters
-    /// * `type_val`: The raw `u8` message type code to set.
-    #[inline]
-    pub fn set_msg_type_raw(&mut self, type_val: u8) {
-        self.msg_type = type_val;
+    /// Sets the raw message type from a `u8`.
+    #[inline(always)]
+    pub fn set_msg_type_raw(&mut self, t: u8) {
+        self.msg_type = t;
     }
 
-    /// Returns a reference to the OPEN message payload if the message type is `Open`.
+    /// Returns an immutable reference to the `OpenMsgLayout` payload.
     ///
     /// # Returns
-    /// `Ok(&OpenMsgLayout)` if the message type is `Open`,
-    /// otherwise `Err(BgpError::IncorrectMessageType)`.
-    #[inline]
+    /// A `Result` containing a reference to `OpenMsgLayout` if the message type is `Open`,
+    /// or `BgpError::IncorrectMessageType` otherwise.
+    #[inline(always)]
     pub fn as_open(&self) -> Result<&OpenMsgLayout, BgpError> {
         if self.msg_type == BgpMsgType::Open as u8 {
-            // Safety: msg_type is checked, so accessing self.data.open is valid.
+            // Safety: The message type has been checked to match the accessed union field.
             Ok(unsafe { &self.data.open })
         } else {
             Err(BgpError::IncorrectMessageType(self.msg_type))
         }
     }
 
-    /// Returns a mutable reference to the OPEN message payload if the message type is `Open`.
+    /// Returns a mutable reference to the `OpenMsgLayout` payload.
     ///
     /// # Returns
-    /// `Ok(&mut OpenMsgLayout)` if the message type is `Open`,
-    /// otherwise `Err(BgpError::IncorrectMessageType)`.
-    #[inline]
+    /// A `Result` containing a mutable reference to `OpenMsgLayout` if the message type is `Open`,
+    /// or `BgpError::IncorrectMessageType` otherwise.
+    #[inline(always)]
     pub fn as_open_mut(&mut self) -> Result<&mut OpenMsgLayout, BgpError> {
         if self.msg_type == BgpMsgType::Open as u8 {
-            // Safety: msg_type is checked, so accessing self.data.open is valid.
+            // Safety: The message type has been checked to match the accessed union field.
             Ok(unsafe { &mut self.data.open })
         } else {
             Err(BgpError::IncorrectMessageType(self.msg_type))
         }
     }
 
-    /// Returns a reference to the initial part of the UPDATE message payload if the message type is `Update`.
+    /// Returns an immutable reference to the `UpdateInitialMsgLayout` payload.
     ///
     /// # Returns
-    /// `Ok(&UpdateInitialMsgLayout)` if the message type is `Update`,
-    /// otherwise `Err(BgpError::IncorrectMessageType)`.
-    #[inline]
+    /// A `Result` containing a reference to `UpdateInitialMsgLayout` if the message type is `Update`,
+    /// or `BgpError::IncorrectMessageType` otherwise.
+    #[inline(always)]
     pub fn as_update(&self) -> Result<&UpdateInitialMsgLayout, BgpError> {
         if self.msg_type == BgpMsgType::Update as u8 {
-            // Safety: msg_type is checked, so accessing self.data.update is valid.
+            // Safety: The message type has been checked to match the accessed union field.
             Ok(unsafe { &self.data.update })
         } else {
             Err(BgpError::IncorrectMessageType(self.msg_type))
         }
     }
 
-    /// Returns a mutable reference to the initial part of the UPDATE message payload if the message type is `Update`.
+    /// Returns a mutable reference to the `UpdateInitialMsgLayout` payload.
     ///
     /// # Returns
-    /// `Ok(&mut UpdateInitialMsgLayout)` if the message type is `Update`,
-    /// otherwise `Err(BgpError::IncorrectMessageType)`.
-    #[inline]
+    /// A `Result` containing a mutable reference to `UpdateInitialMsgLayout` if the message type is `Update`,
+    /// or `BgpError::IncorrectMessageType` otherwise.
+    #[inline(always)]
     pub fn as_update_mut(&mut self) -> Result<&mut UpdateInitialMsgLayout, BgpError> {
         if self.msg_type == BgpMsgType::Update as u8 {
-            // Safety: msg_type is checked, so accessing self.data.update is valid.
+            // Safety: The message type has been checked to match the accessed union field.
             Ok(unsafe { &mut self.data.update })
         } else {
             Err(BgpError::IncorrectMessageType(self.msg_type))
         }
     }
 
-    /// Gets the Total Path Attributes Length from an UPDATE message byte slice.
-    /// This field follows the Withdrawn Routes data in an UPDATE message.
-    ///
-    /// # Parameters
-    /// * `message_bytes`: A slice representing the complete BGP message, starting from the marker.
-    ///                    This is required to read beyond the fixed header part.
+    /// Returns an immutable reference to the `NotificationMsgLayout` payload.
     ///
     /// # Returns
-    /// `Some(u16)` containing the Total Path Attributes Length if the message type is `Update`
-    /// and the slice is long enough. `None` otherwise (e.g., incorrect type, slice too short).
-    #[inline]
-    pub fn update_total_path_attr_len(&self, message_bytes: &[u8]) -> Option<u16> {
-        if self.msg_type != BgpMsgType::Update as u8 {
-            return None;
-        }
-        // Safety: msg_type is checked to be Update, so accessing self.data.update is valid.
-        let wrl_val = u16::from_be_bytes(unsafe { self.data.update.withdrawn_routes_length });
-        let common_hdr_size = 19;
-        let tpal_offset = common_hdr_size + UpdateInitialMsgLayout::LEN + (wrl_val as usize);
-        if message_bytes.len() < tpal_offset + 2 {
-            return None;
-        }
-        let tpal_bytes: [u8; 2] = message_bytes[tpal_offset..tpal_offset + 2]
-            .try_into()
-            .ok()?;
-        Some(u16::from_be_bytes(tpal_bytes))
-    }
-
-    /// Sets the Total Path Attributes Length in an UPDATE message byte slice.
-    /// This field follows the Withdrawn Routes data in an UPDATE message.
-    ///
-    /// # Parameters
-    /// * `message_bytes`: A mutable slice representing the complete BGP message, starting from the marker.
-    ///                    This is required to write beyond the fixed header part.
-    /// * `tpal_val`: The `u16` Total Path Attributes Length to write (will be converted to network byte order).
-    ///
-    /// # Returns
-    /// `Ok(())` if the message type is `Update` and the slice is long enough to write the value.
-    /// `Err(BgpError::IncorrectMessageType)` if the message is not an UPDATE.
-    /// `Err(BgpError::BufferTooShort)` if `message_bytes` is too short.
-    #[inline]
-    pub fn set_update_total_path_attr_len(
-        &mut self,
-        message_bytes: &mut [u8],
-        tpal_val: u16,
-    ) -> Result<(), BgpError> {
-        if self.msg_type != BgpMsgType::Update as u8 {
-            return Err(BgpError::IncorrectMessageType(self.msg_type));
-        }
-        // Safety: msg_type is checked to be Update, so accessing self.data.update to read
-        // withdrawn_routes_length is valid within the context of this BgpHdr struct.
-        // The safety of message_bytes slice access is handled by length checks.
-        let wrl_val = u16::from_be_bytes(unsafe { self.data.update.withdrawn_routes_length });
-        let common_hdr_size = 19;
-        let tpal_offset = common_hdr_size + UpdateInitialMsgLayout::LEN + (wrl_val as usize);
-        if message_bytes.len() < tpal_offset + 2 {
-            return Err(BgpError::BufferTooShort);
-        }
-        let bytes_to_write = tpal_val.to_be_bytes();
-        message_bytes[tpal_offset..tpal_offset + 2].copy_from_slice(&bytes_to_write);
-        Ok(())
-    }
-
-    /// Returns a reference to the NOTIFICATION message payload if the message type is `Notification`.
-    ///
-    /// # Returns
-    /// `Ok(&NotificationMsgLayout)` if the message type is `Notification`,
-    /// otherwise `Err(BgpError::IncorrectMessageType)`.
-    #[inline]
+    /// A `Result` containing a reference to `NotificationMsgLayout` if the message type is `Notification`,
+    /// or `BgpError::IncorrectMessageType` otherwise.
+    #[inline(always)]
     pub fn as_notification(&self) -> Result<&NotificationMsgLayout, BgpError> {
         if self.msg_type == BgpMsgType::Notification as u8 {
-            // Safety: msg_type is checked, so accessing self.data.notification is valid.
+            // Safety: The message type has been checked to match the accessed union field.
             Ok(unsafe { &self.data.notification })
         } else {
             Err(BgpError::IncorrectMessageType(self.msg_type))
         }
     }
 
-    /// Returns a mutable reference to the NOTIFICATION message payload if the message type is `Notification`.
+    /// Returns a mutable reference to the `NotificationMsgLayout` payload.
     ///
     /// # Returns
-    /// `Ok(&mut NotificationMsgLayout)` if the message type is `Notification`,
-    /// otherwise `Err(BgpError::IncorrectMessageType)`.
-    #[inline]
+    /// A `Result` containing a mutable reference to `NotificationMsgLayout` if the message type is `Notification`,
+    /// or `BgpError::IncorrectMessageType` otherwise.
+    #[inline(always)]
     pub fn as_notification_mut(&mut self) -> Result<&mut NotificationMsgLayout, BgpError> {
         if self.msg_type == BgpMsgType::Notification as u8 {
-            // Safety: msg_type is checked, so accessing self.data.notification is valid.
+            // Safety: The message type has been checked to match the accessed union field.
             Ok(unsafe { &mut self.data.notification })
         } else {
             Err(BgpError::IncorrectMessageType(self.msg_type))
         }
     }
 
-    /// Returns a reference to the KEEPALIVE message payload if the message type is `KeepAlive`.
-    /// Since KEEPALIVE messages have no specific payload, this refers to an empty struct.
+    /// Returns an immutable reference to the `KeepAliveMsgLayout` payload.
     ///
     /// # Returns
-    /// `Ok(&KeepAliveMsgLayout)` if the message type is `KeepAlive`,
-    /// otherwise `Err(BgpError::IncorrectMessageType)`.
-    #[inline]
+    /// A `Result` containing a reference to `KeepAliveMsgLayout` if the message type is `KeepAlive`,
+    /// or `BgpError::IncorrectMessageType` otherwise.
+    #[inline(always)]
     pub fn as_keep_alive(&self) -> Result<&KeepAliveMsgLayout, BgpError> {
         if self.msg_type == BgpMsgType::KeepAlive as u8 {
-            // Safety: msg_type is checked, so accessing self.data.keep_alive is valid.
+            // Safety: The message type has been checked to match the accessed union field.
             Ok(unsafe { &self.data.keep_alive })
         } else {
             Err(BgpError::IncorrectMessageType(self.msg_type))
         }
     }
 
-    /// Returns a mutable reference to the KEEPALIVE message payload if the message type is `KeepAlive`.
-    /// Since KEEPALIVE messages have no specific payload, this refers to an empty struct.
+    /// Returns a mutable reference to the `KeepAliveMsgLayout` payload.
     ///
     /// # Returns
-    /// `Ok(&mut KeepAliveMsgLayout)` if the message type is `KeepAlive`,
-    /// otherwise `Err(BgpError::IncorrectMessageType)`.
-    #[inline]
+    /// A `Result` containing a mutable reference to `KeepAliveMsgLayout` if the message type is `KeepAlive`,
+    /// or `BgpError::IncorrectMessageType` otherwise.
+    #[inline(always)]
     pub fn as_keep_alive_mut(&mut self) -> Result<&mut KeepAliveMsgLayout, BgpError> {
         if self.msg_type == BgpMsgType::KeepAlive as u8 {
-            // Safety: msg_type is checked, so accessing self.data.keep_alive is valid.
+            // Safety: The message type has been checked to match the accessed union field.
             Ok(unsafe { &mut self.data.keep_alive })
         } else {
             Err(BgpError::IncorrectMessageType(self.msg_type))
         }
     }
 
-    /// Returns a reference to the ROUTE-REFRESH message payload if the message type is `RouteRefresh`.
+    /// Returns an immutable reference to the `RouteRefreshMsgLayout` payload.
     ///
     /// # Returns
-    /// `Ok(&RouteRefreshMsgLayout)` if the message type is `RouteRefresh`,
-    /// otherwise `Err(BgpError::IncorrectMessageType)`.
-    #[inline]
+    /// A `Result` containing a reference to `RouteRefreshMsgLayout` if the message type is `RouteRefresh`,
+    /// or `BgpError::IncorrectMessageType` otherwise.
+    #[inline(always)]
     pub fn as_route_refresh(&self) -> Result<&RouteRefreshMsgLayout, BgpError> {
         if self.msg_type == BgpMsgType::RouteRefresh as u8 {
-            // Safety: msg_type is checked, so accessing self.data.route_refresh is valid.
+            // Safety: The message type has been checked to match the accessed union field.
             Ok(unsafe { &self.data.route_refresh })
         } else {
             Err(BgpError::IncorrectMessageType(self.msg_type))
         }
     }
 
-    /// Returns a mutable reference to the ROUTE-REFRESH message payload if the message type is `RouteRefresh`.
+    /// Returns a mutable reference to the `RouteRefreshMsgLayout` payload.
     ///
     /// # Returns
-    /// `Ok(&mut RouteRefreshMsgLayout)` if the message type is `RouteRefresh`,
-    /// otherwise `Err(BgpError::IncorrectMessageType)`.
-    #[inline]
+    /// A `Result` containing a mutable reference to `RouteRefreshMsgLayout` if the message type is `RouteRefresh`,
+    /// or `BgpError::IncorrectMessageType` otherwise.
+    #[inline(always)]
     pub fn as_route_refresh_mut(&mut self) -> Result<&mut RouteRefreshMsgLayout, BgpError> {
         if self.msg_type == BgpMsgType::RouteRefresh as u8 {
-            // Safety: msg_type is checked, so accessing self.data.route_refresh is valid.
+            // Safety: The message type has been checked to match the accessed union field.
             Ok(unsafe { &mut self.data.route_refresh })
         } else {
             Err(BgpError::IncorrectMessageType(self.msg_type))
         }
     }
-}
 
-impl BgpHdr {
-    /// Returns a reference to the OPEN message payload without checking the message type.
+    /// Reads the Total Path Attribute Length field from an UPDATE message.
+    ///
+    /// This requires access to the full message buffer, as this field is located
+    /// after the withdrawn routes list, which is variable in length.
+    ///
+    /// # Parameters
+    /// * `msg`: A slice representing the entire BGP message.
     ///
     /// # Returns
-    /// A reference to an `OpenMsgLayout` interpreted from the `data` field.
+    /// `Some(u16)` with the length if successful, `None` if the message is not an UPDATE
+    /// or the buffer is too short.
+    #[inline(always)]
+    pub fn update_total_path_attr_len(&self, msg: &[u8]) -> Option<u16> {
+        if self.msg_type != BgpMsgType::Update as u8 {
+            return None;
+        }
+        // Safety: The message type has been checked to be Update, so accessing the `update` union field is safe.
+        let wrl = read_u16_be(unsafe { &self.data.update.withdrawn_routes_length });
+        let off = COMMON_HDR_LEN + UpdateInitialMsgLayout::LEN + wrl as usize;
+        if msg.len() < off + 2 {
+            return None;
+        }
+        Some(read_u16_be(&msg[off..]))
+    }
+
+    /// Sets the Total Path Attribute Length field in an UPDATE message.
+    ///
+    /// This requires access to the full message buffer, as this field is located
+    /// after the withdrawn routes list, which is variable in length.
+    ///
+    /// # Parameters
+    /// * `msg`: A mutable slice representing the entire BGP message.
+    /// * `tpal`: The total path attribute length to write.
+    ///
+    /// # Returns
+    /// `Ok(())` on success, or a `BgpError` if the message is not an UPDATE or the buffer is too short.
+    #[inline(always)]
+    pub fn set_update_total_path_attr_len(
+        &mut self,
+        msg: &mut [u8],
+        tpal: u16,
+    ) -> Result<(), BgpError> {
+        if self.msg_type != BgpMsgType::Update as u8 {
+            return Err(BgpError::IncorrectMessageType(self.msg_type));
+        }
+        // Safety: The message type has been checked to be Update, so accessing the `update` union field is safe.
+        let wrl = read_u16_be(unsafe { &self.data.update.withdrawn_routes_length });
+        let off = COMMON_HDR_LEN + UpdateInitialMsgLayout::LEN + wrl as usize;
+        if msg.len() < off + 2 {
+            return Err(BgpError::BufferTooShort);
+        }
+        msg[off..off + 2].copy_from_slice(&tpal.to_be_bytes());
+        Ok(())
+    }
+
+    /// Returns an immutable reference to the `OpenMsgLayout` payload without checking the message type.
     ///
     /// # Safety
-    /// Caller must ensure that the BGP message type is `Open`. Accessing the wrong
-    /// union field is undefined behavior.
-    #[inline]
+    ///
+    /// The caller must ensure that the message type is `BgpMsgType::Open` before calling this method.
+    /// Accessing the wrong union field is undefined behavior.
+    #[inline(always)]
     pub unsafe fn as_open_unchecked(&self) -> &OpenMsgLayout {
         &self.data.open
     }
 
-    /// Returns a mutable reference to the OPEN message payload without checking the message type.
-    ///
-    /// # Returns
-    /// A mutable reference to an `OpenMsgLayout` interpreted from the `data` field.
+    /// Returns a mutable reference to the `OpenMsgLayout` payload without checking the message type.
     ///
     /// # Safety
-    /// Caller must ensure that the BGP message type is `Open`. Accessing the wrong
-    /// union field is undefined behavior.
-    #[inline]
+    ///
+    /// The caller must ensure that the message type is `BgpMsgType::Open` before calling this method.
+    /// Accessing the wrong union field is undefined behavior.
+    #[inline(always)]
     pub unsafe fn as_open_mut_unchecked(&mut self) -> &mut OpenMsgLayout {
         &mut self.data.open
     }
 
-    /// Returns a reference to the initial part of the UPDATE message payload without checking the message type.
-    ///
-    /// # Returns
-    /// A reference to an `UpdateInitialMsgLayout` interpreted from the `data` field.
+    /// Returns an immutable reference to the `UpdateInitialMsgLayout` payload without checking the message type.
     ///
     /// # Safety
-    /// Caller must ensure that the BGP message type is `Update`. Accessing the wrong
-    /// union field is undefined behavior.
-    #[inline]
+    ///
+    /// The caller must ensure that the message type is `BgpMsgType::Update` before calling this method.
+    /// Accessing the wrong union field is undefined behavior.
+    #[inline(always)]
     pub unsafe fn as_update_unchecked(&self) -> &UpdateInitialMsgLayout {
         &self.data.update
     }
 
-    /// Returns a mutable reference to the initial part of the UPDATE message payload without checking the message type.
-    ///
-    /// # Returns
-    /// A mutable reference to an `UpdateInitialMsgLayout` interpreted from the `data` field.
+    /// Returns a mutable reference to the `UpdateInitialMsgLayout` payload without checking the message type.
     ///
     /// # Safety
-    /// Caller must ensure that the BGP message type is `Update`. Accessing the wrong
-    /// union field is undefined behavior.
-    #[inline]
+    ///
+    /// The caller must ensure that the message type is `BgpMsgType::Update` before calling this method.
+    /// Accessing the wrong union field is undefined behavior.
+    #[inline(always)]
     pub unsafe fn as_update_mut_unchecked(&mut self) -> &mut UpdateInitialMsgLayout {
         &mut self.data.update
     }
 
-    /// Gets the Total Path Attributes Length from an UPDATE message byte slice, without checking `msg_type`.
-    ///
-    /// # Parameters
-    /// * `message_bytes`: A slice representing the complete BGP message, starting from the marker.
-    ///
-    /// # Returns
-    /// `Some(u16)` containing the Total Path Attributes Length if the slice is long enough
-    /// based on the `withdrawn_routes_len` field. `None` if the slice is too short.
+    /// Reads the Total Path Attribute Length field from an UPDATE message without checking the message type.
     ///
     /// # Safety
-    /// Caller must ensure that:
-    /// 1. The BGP message type is `Update`. Accessing `self.data.update` when the
-    ///    message is not an UPDATE is undefined behavior.
-    /// 2. The `message_bytes` slice accurately represents the BGP message corresponding to this header.
-    #[inline]
-    pub unsafe fn update_total_path_attr_len_unchecked(&self, message_bytes: &[u8]) -> Option<u16> {
-        // Safety: Caller ensures msg_type is Update, so accessing self.data.update is permissible.
-        let wrl_val = u16::from_be_bytes(self.data.update.withdrawn_routes_length);
-        let common_hdr_size = 19;
-        let tpal_offset = common_hdr_size + UpdateInitialMsgLayout::LEN + (wrl_val as usize);
-        if message_bytes.len() < tpal_offset + 2 {
+    ///
+    /// The caller must ensure that the message type is `BgpMsgType::Update` before calling this method.
+    ///
+    /// # Parameters
+    /// * `msg`: A slice representing the entire BGP message.
+    ///
+    /// # Returns
+    /// `Some(u16)` with the length if successful, `None` if the buffer is too short.
+    #[inline(always)]
+    pub unsafe fn update_total_path_attr_len_unchecked(&self, msg: &[u8]) -> Option<u16> {
+        let wrl = read_u16_be(&self.data.update.withdrawn_routes_length);
+        let off = COMMON_HDR_LEN + UpdateInitialMsgLayout::LEN + wrl as usize;
+        if msg.len() < off + 2 {
             return None;
         }
-        // Safety: Length check above ensures this slice access is within bounds of message_bytes.
-        let tpal_bytes: [u8; 2] = message_bytes[tpal_offset..tpal_offset + 2]
-            .try_into()
-            .ok()?;
-        Some(u16::from_be_bytes(tpal_bytes))
+        Some(read_u16_be(&msg[off..]))
     }
 
-    /// Sets the Total Path Attributes Length in an UPDATE message byte slice, without checking `msg_type`.
+    /// Sets the Total Path Attribute Length field in an UPDATE message without checking the message type.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the message type is `BgpMsgType::Update` and that the `msg` buffer
+    /// is large enough to contain the field at the calculated offset.
     ///
     /// # Parameters
-    /// * `message_bytes`: A mutable slice representing the complete BGP message, starting from the marker.
-    /// * `tpal_val`: The `u16` Total Path Attributes Length to write.
-    ///
-    /// # Safety
-    /// Caller must ensure that:
-    /// 1. The BGP message type is `Update`. Accessing `self.data.update` when the
-    ///    message is not an UPDATE is undefined behavior.
-    /// 2. The `message_bytes` slice is long enough to accommodate the write operation
-    ///    based on the current `withdrawn_routes_len` stored in `self.data.update`.
-    ///    Failure to do so will result in a panic due to out-of-bounds slice access.
-    /// 3. The `message_bytes` slice accurately represents the BGP message corresponding to this header.
-    #[inline]
-    pub unsafe fn set_update_total_path_attr_len_unchecked(
-        &mut self,
-        message_bytes: &mut [u8],
-        tpal_val: u16,
-    ) {
-        // Safety: Caller ensures msg_type is Update.
-        let wrl_val = u16::from_be_bytes(self.data.update.withdrawn_routes_length);
-        let common_hdr_size = 19;
-        let tpal_offset = common_hdr_size + UpdateInitialMsgLayout::LEN + (wrl_val as usize);
-        let bytes_to_write = tpal_val.to_be_bytes();
-        // Safety: Caller ensures message_bytes is long enough. Panic if not.
-        message_bytes[tpal_offset..tpal_offset + 2].copy_from_slice(&bytes_to_write);
+    /// * `msg`: A mutable slice representing the entire BGP message.
+    /// * `tpal`: The total path attribute length to write.
+    #[inline(always)]
+    pub unsafe fn set_update_total_path_attr_len_unchecked(&mut self, msg: &mut [u8], tpal: u16) {
+        let wrl = read_u16_be(&self.data.update.withdrawn_routes_length);
+        let off = COMMON_HDR_LEN + UpdateInitialMsgLayout::LEN + wrl as usize;
+        msg[off..off + 2].copy_from_slice(&tpal.to_be_bytes());
     }
 
-    /// Returns a reference to the NOTIFICATION message payload without checking the message type.
-    ///
-    /// # Returns
-    /// A reference to a `NotificationMsgLayout` interpreted from the `data` field.
+    /// Returns an immutable reference to the `NotificationMsgLayout` payload without checking the message type.
     ///
     /// # Safety
-    /// Caller must ensure that the BGP message type is `Notification`. Accessing the wrong
-    /// union field is undefined behavior.
-    #[inline]
+    ///
+    /// The caller must ensure that the message type is `BgpMsgType::Notification` before calling this method.
+    /// Accessing the wrong union field is undefined behavior.
+    #[inline(always)]
     pub unsafe fn as_notification_unchecked(&self) -> &NotificationMsgLayout {
         &self.data.notification
     }
 
-    /// Returns a mutable reference to the NOTIFICATION message payload without checking the message type.
-    ///
-    /// # Returns
-    /// A mutable reference to a `NotificationMsgLayout` interpreted from the `data` field.
+    /// Returns a mutable reference to the `NotificationMsgLayout` payload without checking the message type.
     ///
     /// # Safety
-    /// Caller must ensure that the BGP message type is `Notification`. Accessing the wrong
-    /// union field is undefined behavior.
-    #[inline]
+    ///
+    /// The caller must ensure that the message type is `BgpMsgType::Notification` before calling this method.
+    /// Accessing the wrong union field is undefined behavior.
+    #[inline(always)]
     pub unsafe fn as_notification_mut_unchecked(&mut self) -> &mut NotificationMsgLayout {
         &mut self.data.notification
     }
 
-    /// Returns a reference to the KEEPALIVE message payload without checking the message type.
-    ///
-    /// # Returns
-    /// A reference to a `KeepAliveMsgLayout` interpreted from the `data` field.
+    /// Returns an immutable reference to the `KeepAliveMsgLayout` payload without checking the message type.
     ///
     /// # Safety
-    /// Caller must ensure that the BGP message type is `KeepAlive`. Accessing the wrong
-    /// union field is undefined behavior.
-    #[inline]
+    ///
+    /// The caller must ensure that the message type is `BgpMsgType::KeepAlive` before calling this method.
+    /// Accessing the wrong union field is undefined behavior.
+    #[inline(always)]
     pub unsafe fn as_keep_alive_unchecked(&self) -> &KeepAliveMsgLayout {
         &self.data.keep_alive
     }
 
-    /// Returns a mutable reference to the KEEPALIVE message payload without checking the message type.
-    ///
-    /// # Returns
-    /// A mutable reference to a `KeepAliveMsgLayout` interpreted from the `data` field.
+    /// Returns a mutable reference to the `KeepAliveMsgLayout` payload without checking the message type.
     ///
     /// # Safety
-    /// Caller must ensure that the BGP message type is `KeepAlive`. Accessing the wrong
-    /// union field is undefined behavior.
-    #[inline]
+    ///
+    /// The caller must ensure that the message type is `BgpMsgType::KeepAlive` before calling this method.
+    /// Accessing the wrong union field is undefined behavior.
+    #[inline(always)]
     pub unsafe fn as_keep_alive_mut_unchecked(&mut self) -> &mut KeepAliveMsgLayout {
         &mut self.data.keep_alive
     }
 
-    /// Returns a reference to the ROUTE-REFRESH message payload without checking the message type.
-    ///
-    /// # Returns
-    /// A reference to a `RouteRefreshMsgLayout` interpreted from the `data` field.
+    /// Returns an immutable reference to the `RouteRefreshMsgLayout` payload without checking the message type.
     ///
     /// # Safety
-    /// Caller must ensure that the BGP message type is `RouteRefresh`. Accessing the wrong
-    /// union field is undefined behavior.
-    #[inline]
+    ///
+    /// The caller must ensure that the message type is `BgpMsgType::RouteRefresh` before calling this method.
+    /// Accessing the wrong union field is undefined behavior.
+    #[inline(always)]
     pub unsafe fn as_route_refresh_unchecked(&self) -> &RouteRefreshMsgLayout {
         &self.data.route_refresh
     }
 
-    /// Returns a mutable reference to the ROUTE-REFRESH message payload without checking the message type.
-    ///
-    /// # Returns
-    /// A mutable reference to a `RouteRefreshMsgLayout` interpreted from the `data` field.
+    /// Returns a mutable reference to the `RouteRefreshMsgLayout` payload without checking the message type.
     ///
     /// # Safety
-    /// Caller must ensure that the BGP message type is `RouteRefresh`. Accessing the wrong
-    /// union field is undefined behavior.
-    #[inline]
+    ///
+    /// The caller must ensure that the message type is `BgpMsgType::RouteRefresh` before calling this method.
+    /// Accessing the wrong union field is undefined behavior.
+    #[inline(always)]
     pub unsafe fn as_route_refresh_mut_unchecked(&mut self) -> &mut RouteRefreshMsgLayout {
         &mut self.data.route_refresh
     }
 }
 
 impl Default for BgpHdr {
-    /// Provides a default `BgpHdr`.
-    /// By default, it creates a `KeepAlive` message header, as this is the simplest
-    /// and most common type for an uninitialized or default state.
-    ///
-    /// # Returns
-    /// A new `BgpHdr` initialized as a KEEPALIVE message.
+    /// Creates a default `BgpHdr`, which is a KEEPALIVE message.
     fn default() -> Self {
         Self::new(BgpMsgType::KeepAlive)
     }
@@ -1349,114 +1283,147 @@ impl Default for BgpHdr {
 
 impl core::fmt::Debug for BgpHdr {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut builder = f.debug_struct("BgpHdr");
-        builder.field("marker", &self.marker);
-        builder.field("length", &self.length());
+        let mut s = f.debug_struct("BgpHdr");
+        s.field("marker", &self.marker)
+            .field("length", &self.length());
         match self.msg_type() {
-            Ok(msg_type) => {
-                builder.field("msg_type", &msg_type);
-                // Safety: We are matching on msg_type, so accessing the corresponding
-                // union field is safe here for debug purposes.
+            Ok(mt) => {
+                s.field("msg_type", &mt);
+                // Safety: The message type is checked before accessing the corresponding union field.
                 unsafe {
-                    match msg_type {
-                        BgpMsgType::Open => builder.field("payload", &self.data.open),
+                    match mt {
+                        BgpMsgType::Open => s.field("payload", &self.data.open),
                         BgpMsgType::Update => {
-                            builder.field("payload_initial", &self.data.update);
-                            builder.field(
+                            s.field("payload_initial", &self.data.update);
+                            s.field(
                                 "total_path_attribute_len_info",
-                                &"<Requires full message bytes to calculate>",
+                                &"<requires full message bytes>",
                             )
                         }
-                        BgpMsgType::Notification => {
-                            builder.field("payload", &self.data.notification)
-                        }
-                        BgpMsgType::KeepAlive => builder.field("payload", &self.data.keep_alive),
-                        BgpMsgType::RouteRefresh => {
-                            builder.field("payload", &self.data.route_refresh)
-                        }
+                        BgpMsgType::Notification => s.field("payload", &self.data.notification),
+                        BgpMsgType::KeepAlive => s.field("payload", &self.data.keep_alive),
+                        BgpMsgType::RouteRefresh => s.field("payload", &self.data.route_refresh),
                     };
                 }
             }
-            Err(BgpError::IncorrectMessageType(raw_type)) => {
-                builder.field("msg_type_raw", &raw_type);
-                // For unknown types, attempt to show a few bytes of the payload data,
-                // assuming it might resemble an OpenMsgLayout for size comparison,
-                // but this is speculative.
-                // Safety: Accessing self.data.open here is to get a pointer and length for
-                // a small part of the data region. This doesn't interpret the data as Open,
-                // but just provides a view into the raw bytes of the union.
-                let data_as_open_layout_ref: &OpenMsgLayout = unsafe { &self.data.open };
-                let data_bytes_ptr = data_as_open_layout_ref as *const OpenMsgLayout as *const u8;
-                const MAX_BYTES_TO_SHOW: usize = 4;
-                let declared_total_len = self.length() as usize;
-                let common_hdr_size = 19;
-                if declared_total_len >= common_hdr_size {
-                    let specific_payload_actual_len = declared_total_len - common_hdr_size;
-                    let displayable_len =
-                        core::cmp::min(specific_payload_actual_len, OpenMsgLayout::LEN);
-                    if displayable_len > 0 {
-                        // Safety: data_bytes_ptr is valid, displayable_len is calculated based on message length
-                        // and struct constraints, ensuring it doesn't read out of bounds of the union's data area
-                        // if specific_payload_actual_len is respected.
-                        let data_slice_to_display =
-                            unsafe { core::slice::from_raw_parts(data_bytes_ptr, displayable_len) };
-                        if displayable_len >= MAX_BYTES_TO_SHOW {
-                            builder.field(
-                                "data_bytes_truncated",
-                                &&data_slice_to_display[..MAX_BYTES_TO_SHOW],
-                            );
-                        } else {
-                            builder.field("data_bytes", &data_slice_to_display);
-                        }
-                    } else {
-                        builder.field("data", &"<No specific payload data>");
-                    }
-                } else {
-                    builder.field("data", &"<Invalid length, less than common header>");
-                }
+            Err(BgpError::IncorrectMessageType(raw)) => {
+                s.field("msg_type_raw", &raw).field("data", &"<unknown>");
             }
             Err(BgpError::BufferTooShort) => {
-                // This case should ideally not be hit from self.msg_type() directly.
-                builder.field(
-                    "msg_type_error",
-                    &"BufferTooShort (unexpected from msg_type())",
-                );
+                s.field("msg_type_error", &"BufferTooShort (unexpected)");
             }
+        };
+        s.finish()
+    }
+}
+
+#[cfg(feature = "serde")]
+mod serde_impls {
+    extern crate alloc;
+    use alloc::vec::Vec;
+    use core::{convert::TryFrom, mem, ptr};
+
+    use serde::{
+        de::{self, Deserializer, Visitor},
+        ser::{Error as SerError, Serializer},
+        Serialize,
+    };
+
+    use super::{payload_len, BgpError, BgpHdr, BgpMsgType, COMMON_HDR_LEN};
+
+    impl Serialize for BgpHdr {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            let mt = BgpMsgType::try_from(self.msg_type).map_err(S::Error::custom)?;
+            let payload_len = payload_len(mt);
+            let total = COMMON_HDR_LEN + payload_len;
+            let mut out: Vec<u8> = Vec::with_capacity(total);
+            out.extend_from_slice(&self.marker);
+            out.extend_from_slice(&self.length);
+            out.push(self.msg_type);
+            // Safety: The payload length is determined by the message type, ensuring we don't
+            // read past the end of the union's allocated space for that specific message type.
+            unsafe {
+                let p = &self.data as *const _ as *const u8;
+                out.extend_from_slice(core::slice::from_raw_parts(p, payload_len));
+            }
+            serializer.serialize_bytes(&out)
         }
-        builder.finish()
+    }
+
+    struct V;
+    impl<'de> Visitor<'de> for V {
+        type Value = BgpHdr;
+        fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            write!(f, "byte slice with BGP header")
+        }
+
+        fn visit_bytes<E>(self, v: &[u8]) -> Result<BgpHdr, E>
+        where
+            E: de::Error,
+        {
+            if v.len() < COMMON_HDR_LEN {
+                return Err(E::custom(BgpError::BufferTooShort));
+            }
+            let mut hdr: BgpHdr = unsafe { mem::zeroed() };
+            hdr.marker.copy_from_slice(&v[..16]);
+            hdr.length.copy_from_slice(&v[16..18]);
+            hdr.msg_type = v[18];
+            let mt = BgpMsgType::try_from(hdr.msg_type).map_err(E::custom)?;
+            let payload_len = payload_len(mt);
+            if v.len() < COMMON_HDR_LEN + payload_len {
+                return Err(E::custom(BgpError::BufferTooShort));
+            }
+            // Safety: The length of the source slice `v` has been checked against the
+            // required length (`COMMON_HDR_LEN + payload_len`), so `add` and
+            // `copy_nonoverlapping` will not read out of bounds. The destination is a
+            // mutable pointer to the union field, which has sufficient space for `payload_len`.
+            unsafe {
+                let dst = &mut hdr.data as *mut _ as *mut u8;
+                ptr::copy_nonoverlapping(v.as_ptr().add(COMMON_HDR_LEN), dst, payload_len);
+            }
+            Ok(hdr)
+        }
+    }
+
+    impl<'de> de::Deserialize<'de> for BgpHdr {
+        fn deserialize<D>(d: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            d.deserialize_bytes(V)
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::fmt::Write;
 
     #[test]
     fn test_layout_struct_sizes() {
-        assert_eq!(OpenMsgLayout::LEN, mem::size_of::<OpenMsgLayout>());
+        assert_eq!(OpenMsgLayout::LEN, size_of::<OpenMsgLayout>());
         assert_eq!(
             UpdateInitialMsgLayout::LEN,
-            mem::size_of::<UpdateInitialMsgLayout>()
+            size_of::<UpdateInitialMsgLayout>()
         );
         assert_eq!(
             NotificationMsgLayout::LEN,
-            mem::size_of::<NotificationMsgLayout>()
+            size_of::<NotificationMsgLayout>()
         );
-        assert_eq!(
-            KeepAliveMsgLayout::LEN,
-            mem::size_of::<KeepAliveMsgLayout>()
-        );
+        assert_eq!(KeepAliveMsgLayout::LEN, size_of::<KeepAliveMsgLayout>());
         assert_eq!(
             RouteRefreshMsgLayout::LEN,
-            mem::size_of::<RouteRefreshMsgLayout>()
+            size_of::<RouteRefreshMsgLayout>()
         );
     }
 
     #[test]
     fn test_bgphdr_len_constant() {
         assert_eq!(BgpHdr::LEN, 19 + OpenMsgLayout::LEN);
-        assert_eq!(core::mem::size_of::<BgpHdr>(), BgpHdr::LEN);
+        assert_eq!(size_of::<BgpHdr>(), BgpHdr::LEN);
     }
 
     #[test]
@@ -1528,7 +1495,10 @@ mod tests {
             let update_payload = hdr.as_update_mut().unwrap();
             update_payload.set_withdrawn_routes_length(wrl_val);
         }
-        assert_eq!(hdr.as_update().unwrap().get_withdrawn_routes_length(), wrl_val);
+        assert_eq!(
+            hdr.as_update().unwrap().get_withdrawn_routes_length(),
+            wrl_val
+        );
         assert_eq!(
             unsafe { hdr.as_update_unchecked().get_withdrawn_routes_length() },
             wrl_val
@@ -1647,7 +1617,6 @@ mod tests {
             rr_payload.set_res(0);
         }
         assert_eq!(hdr.as_route_refresh().unwrap().res(), 0);
-
         {
             let rr_payload = hdr.as_route_refresh_mut().unwrap();
             rr_payload.set_safi(1);
@@ -1667,132 +1636,123 @@ mod tests {
         assert!(hdr.as_keep_alive_mut().is_ok());
     }
 
-    struct DebugCapture {
-        buf: [u8; 1024],
-        len: usize,
-    }
+    #[cfg(feature = "serde")]
+    mod serde_tests {
+        use bincode;
 
-    impl DebugCapture {
-        fn new() -> Self {
-            DebugCapture {
-                buf: [0; 1024],
-                len: 0,
+        use super::*;
+
+        fn roundtrip_test(hdr: &BgpHdr, expected_on_wire_len: usize) {
+            let config = bincode::config::standard().with_fixed_int_encoding();
+            let bytes = bincode::serde::encode_to_vec(hdr, config).expect("Serialization failed");
+            let bincode_prefix_len = 8;
+            assert_eq!(bytes.len(), bincode_prefix_len + expected_on_wire_len);
+            let header_bytes = &bytes[bincode_prefix_len..];
+            assert_eq!(&header_bytes[0..16], &hdr.marker);
+            assert_eq!(&header_bytes[16..18], &hdr.length);
+            assert_eq!(header_bytes[18], hdr.msg_type);
+            let (de_hdr, len): (BgpHdr, usize) =
+                bincode::serde::decode_from_slice(&bytes, config).expect("Deserialization failed");
+            assert_eq!(len, bytes.len());
+            assert_eq!(de_hdr.marker, hdr.marker);
+            assert_eq!(de_hdr.length(), hdr.length());
+            assert_eq!(de_hdr.msg_type(), hdr.msg_type());
+            let payload_len = expected_on_wire_len - 19;
+            unsafe {
+                let original_payload_ptr = &hdr.data as *const _ as *const u8;
+                let original_payload =
+                    core::slice::from_raw_parts(original_payload_ptr, payload_len);
+                let deserialized_payload_ptr = &de_hdr.data as *const _ as *const u8;
+                let deserialized_payload =
+                    core::slice::from_raw_parts(deserialized_payload_ptr, payload_len);
+                assert_eq!(original_payload, deserialized_payload);
             }
         }
-        fn as_str(&self) -> Option<&str> {
-            core::str::from_utf8(&self.buf[..self.len]).ok()
-        }
-    }
 
-    impl core::fmt::Write for DebugCapture {
-        fn write_str(&mut self, s: &str) -> core::fmt::Result {
-            let bytes = s.as_bytes();
-            let remaining_cap = self.buf.len() - self.len;
-            let bytes_to_copy = if bytes.len() > remaining_cap {
-                remaining_cap
-            } else {
-                bytes.len()
+        #[test]
+        fn test_open_msg_serde_roundtrip() {
+            let mut hdr = BgpHdr::new(BgpMsgType::Open);
+            hdr.as_open_mut().unwrap().set_version(4);
+            hdr.as_open_mut().unwrap().set_my_as(65001);
+            hdr.as_open_mut().unwrap().set_hold_time(180);
+            hdr.as_open_mut().unwrap().set_bgp_id(0xc0a80101);
+            hdr.as_open_mut().unwrap().set_opt_parm_len(0);
+            let expected_len = 19 + OpenMsgLayout::LEN;
+            hdr.set_length(expected_len as u16);
+            roundtrip_test(&hdr, expected_len);
+        }
+
+        #[test]
+        fn test_update_msg_serde_roundtrip() {
+            let mut hdr = BgpHdr::new(BgpMsgType::Update);
+            hdr.as_update_mut().unwrap().set_withdrawn_routes_length(23);
+            let expected_len = 19 + UpdateInitialMsgLayout::LEN;
+            // The full length of an UPDATE message is variable. Our serialization
+            // only handles the fixed part of the header.
+            hdr.set_length(expected_len as u16);
+            roundtrip_test(&hdr, expected_len);
+        }
+
+        #[test]
+        fn test_notification_msg_serde_roundtrip() {
+            let mut hdr = BgpHdr::new(BgpMsgType::Notification);
+            hdr.as_notification_mut().unwrap().set_error_code(6); // Cease
+            hdr.as_notification_mut().unwrap().set_error_subcode(1); // Max Prefixes
+            let expected_len = 19 + NotificationMsgLayout::LEN;
+            hdr.set_length(expected_len as u16);
+            roundtrip_test(&hdr, expected_len);
+        }
+
+        #[test]
+        fn test_keepalive_msg_serde_roundtrip() {
+            let hdr = BgpHdr::new(BgpMsgType::KeepAlive);
+            let expected_len = 19 + KeepAliveMsgLayout::LEN;
+            assert_eq!(hdr.length(), expected_len as u16);
+            roundtrip_test(&hdr, expected_len);
+        }
+
+        #[test]
+        fn test_route_refresh_msg_serde_roundtrip() {
+            let mut hdr = BgpHdr::new(BgpMsgType::RouteRefresh);
+            hdr.as_route_refresh_mut().unwrap().set_afi(1); // IPv4
+            hdr.as_route_refresh_mut().unwrap().set_safi(1); // Unicast
+
+            let expected_len = 19 + RouteRefreshMsgLayout::LEN;
+            hdr.set_length(expected_len as u16);
+
+            roundtrip_test(&hdr, expected_len);
+        }
+
+        #[test]
+        fn test_deserialization_failures() {
+            let config = bincode::config::standard().with_fixed_int_encoding();
+            let run_test = |bytes: &[u8]| -> Result<(BgpHdr, usize), _> {
+                let encoded = bincode::serde::encode_to_vec(bytes, config).unwrap();
+                bincode::serde::decode_from_slice(&encoded, config)
             };
-            if bytes_to_copy > 0 {
-                self.buf[self.len..self.len + bytes_to_copy]
-                    .copy_from_slice(&bytes[..bytes_to_copy]);
-                self.len += bytes_to_copy;
-            }
-            if bytes_to_copy < bytes.len() {
-                Err(core::fmt::Error)
-            } else {
-                Ok(())
-            }
+            assert!(
+                run_test(&[]).is_err(),
+                "Deserializing empty bytes should fail"
+            );
+            assert!(
+                run_test(&[0xff; 18]).is_err(),
+                "Deserializing truncated common header should fail"
+            );
+            let mut invalid_type_bytes = [0xff; 19];
+            invalid_type_bytes[16..18].copy_from_slice(&(19u16).to_be_bytes());
+            invalid_type_bytes[18] = 99; // Invalid type
+            assert!(
+                run_test(&invalid_type_bytes).is_err(),
+                "Deserializing invalid message type should fail"
+            );
+            let mut truncated_open = [0xff; 19 + OpenMsgLayout::LEN - 1];
+            let len_bytes = (truncated_open.len() as u16).to_be_bytes();
+            truncated_open[16..18].copy_from_slice(&len_bytes);
+            truncated_open[18] = BgpMsgType::Open as u8;
+            assert!(
+                run_test(&truncated_open).is_err(),
+                "Deserializing truncated Open payload should fail"
+            );
         }
-    }
-
-    fn custom_debug_contains(hdr: &BgpHdr, substring: &str) -> bool {
-        let mut capture = DebugCapture::new();
-        if write!(&mut capture, "{:?}", hdr).is_ok() {
-            if let Some(s) = capture.as_str() {
-                return s.contains(substring);
-            }
-        }
-        false
-    }
-
-    #[test]
-    fn test_debug_output_various_types() {
-        let mut hdr_open = BgpHdr::new(BgpMsgType::Open);
-        hdr_open.as_open_mut().unwrap().set_version(4);
-        hdr_open.as_open_mut().unwrap().set_my_as(65001);
-        assert!(custom_debug_contains(&hdr_open, "msg_type: Open"));
-        assert!(custom_debug_contains(
-            &hdr_open,
-            "OpenMsgLayout { version: 4, my_as: [253, 233]"
-        ));
-        let mut hdr_update = BgpHdr::new(BgpMsgType::Update);
-        hdr_update
-            .as_update_mut()
-            .unwrap()
-            .set_withdrawn_routes_length(0);
-        assert!(custom_debug_contains(&hdr_update, "msg_type: Update"));
-        assert!(custom_debug_contains(
-            &hdr_update,
-            "UpdateInitialMsgLayout { withdrawn_routes_length: [0, 0] }"
-        ));
-        assert!(custom_debug_contains(
-            &hdr_update,
-            "total_path_attribute_len_info: \"<Requires full message bytes to calculate>\""
-        ));
-        let mut hdr_notif = BgpHdr::new(BgpMsgType::Notification);
-        hdr_notif.as_notification_mut().unwrap().set_error_code(6);
-        hdr_notif
-            .as_notification_mut()
-            .unwrap()
-            .set_error_subcode(1);
-        assert!(custom_debug_contains(&hdr_notif, "msg_type: Notification"));
-        assert!(custom_debug_contains(
-            &hdr_notif,
-            "NotificationMsgLayout { error_code: 6, error_subcode: 1 }"
-        ));
-        let mut hdr_rr = BgpHdr::new(BgpMsgType::RouteRefresh);
-        hdr_rr.as_route_refresh_mut().unwrap().set_afi(2);
-        hdr_rr.as_route_refresh_mut().unwrap().set_safi(128);
-        assert!(custom_debug_contains(&hdr_rr, "msg_type: RouteRefresh"));
-        assert!(custom_debug_contains(
-            &hdr_rr,
-            "RouteRefreshMsgLayout { afi: [0, 2]"
-        ));
-        let hdr_ka = BgpHdr::new(BgpMsgType::KeepAlive);
-        assert!(custom_debug_contains(&hdr_ka, "msg_type: KeepAlive"));
-        assert!(custom_debug_contains(
-            &hdr_ka,
-            "payload: KeepAliveMsgLayout"
-        ));
-        let mut hdr_unknown = BgpHdr::new(BgpMsgType::Open);
-        hdr_unknown.set_msg_type_raw(99);
-        hdr_unknown.set_length((19 + 3) as u16);
-        unsafe {
-            let open_mut = &mut hdr_unknown.data.open;
-            open_mut.version = 0xAA;
-            open_mut.my_as[0] = 0xBB;
-            open_mut.my_as[1] = 0xCC;
-        }
-        assert!(custom_debug_contains(&hdr_unknown, "msg_type_raw: 99"));
-        assert!(custom_debug_contains(
-            &hdr_unknown,
-            "data_bytes: [170, 187, 204]"
-        ));
-        hdr_unknown.set_length((19 + OpenMsgLayout::LEN) as u16);
-        assert!(custom_debug_contains(
-            &hdr_unknown,
-            "data_bytes_truncated: [170, 187, 204"
-        ));
-        hdr_unknown.set_length(19);
-        assert!(custom_debug_contains(
-            &hdr_unknown,
-            "data: \"<No specific payload data>\""
-        ));
-        hdr_unknown.set_length(18);
-        assert!(custom_debug_contains(
-            &hdr_unknown,
-            "data: \"<Invalid length, less than common header>\""
-        ));
     }
 }
