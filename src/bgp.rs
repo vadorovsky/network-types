@@ -146,7 +146,7 @@ impl TryFrom<u8> for BgpMsgType {
 /// This structure provides methods for safely accessing and modifying the fields
 /// of an OPEN message, handling byte order conversions automatically.
 #[repr(C, packed)]
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct OpenMsgLayout {
     /// BGP protocol version number. The current version is 4.
@@ -164,6 +164,17 @@ pub struct OpenMsgLayout {
 impl OpenMsgLayout {
     /// The size of the `OpenMsgLayout` struct in bytes.
     pub const LEN: usize = size_of::<Self>();
+
+    /// Creates a new, zero-initialized `OpenMsgLayout`.
+    pub fn new() -> Self {
+        Self {
+            version: 0,
+            my_as: [0; 2],
+            hold_time: [0; 2],
+            bgp_id: [0; 4],
+            opt_parm_len: 0,
+        }
+    }
 
     /// Gets the BGP version.
     #[inline(always)]
@@ -242,6 +253,13 @@ impl UpdateInitialMsgLayout {
     /// The size of the `UpdateInitialMsgLayout` struct in bytes.
     pub const LEN: usize = size_of::<Self>();
 
+    /// Creates a new, zero-initialized `UpdateInitialMsgLayout`.
+    pub fn new() -> Self {
+        Self {
+            withdrawn_routes_length: [0; 2],
+        }
+    }
+
     /// Gets the length of the withdrawn routes field.
     #[inline(always)]
     pub fn get_withdrawn_routes_length(&self) -> u16 {
@@ -252,14 +270,6 @@ impl UpdateInitialMsgLayout {
     #[inline(always)]
     pub fn set_withdrawn_routes_length(&mut self, len: u16) {
         self.withdrawn_routes_length = len.to_be_bytes();
-    }
-}
-
-impl Default for UpdateInitialMsgLayout {
-    fn default() -> Self {
-        Self {
-            withdrawn_routes_length: [0; 2],
-        }
     }
 }
 
@@ -453,7 +463,7 @@ impl<'a> UpdateMessageView<'a> {
 
     /// Returns an iterator over the withdrawn routes.
     ///
-    /// The iterator will be empty if the withdrawn routes length is zero. It may
+    /// The iterator will be empty if the withdrawn route length is zero. It may
     /// also stop early if the buffer is shorter than indicated by the length field.
     pub fn withdrawn_routes_iter(&self) -> WithdrawnRoutesIterator<'a> {
         let len = self.initial_layout().get_withdrawn_routes_length() as usize;
@@ -688,7 +698,7 @@ impl<'a> UpdateMessageWriter<'a> {
 ///
 /// This message is sent to report errors.
 #[repr(C, packed)]
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct NotificationMsgLayout {
     /// Indicates the type of error.
@@ -699,6 +709,14 @@ pub struct NotificationMsgLayout {
 impl NotificationMsgLayout {
     /// The size of the `NotificationMsgLayout` struct in bytes.
     pub const LEN: usize = size_of::<Self>();
+
+    /// Creates a new, zero-initialized `NotificationMsgLayout`.
+    pub fn new() -> Self {
+        Self {
+            error_code: 0,
+            error_subcode: 0,
+        }
+    }
 
     /// Gets the error code.
     #[inline(always)]
@@ -726,17 +744,22 @@ impl NotificationMsgLayout {
 ///
 /// A KEEPALIVE message has no payload, so this is a zero-sized struct.
 #[repr(C, packed)]
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct KeepAliveMsgLayout {}
 impl KeepAliveMsgLayout {
     /// The size of the `KeepAliveMsgLayout` struct in bytes (which is 0).
     pub const LEN: usize = size_of::<Self>();
+
+    /// Creates a new `KeepAliveMsgLayout`.
+    pub fn new() -> Self {
+        Self {}
+    }
 }
 
 /// Represents the layout of a BGP ROUTE-REFRESH message payload.
 #[repr(C, packed)]
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct RouteRefreshMsgLayout {
     /// Address Family Identifier (e.g., IPv4, IPv6). Stored in big-endian format.
@@ -749,6 +772,15 @@ pub struct RouteRefreshMsgLayout {
 impl RouteRefreshMsgLayout {
     /// The size of the `RouteRefreshMsgLayout` struct in bytes.
     pub const LEN: usize = mem::size_of::<Self>();
+
+    /// Creates a new, zero-initialized `RouteRefreshMsgLayout`.
+    pub fn new() -> Self {
+        Self {
+            afi: [0; 2],
+            _reserved: 0,
+            safi: 0,
+        }
+    }
 
     /// Gets the Address Family Identifier (AFI).
     #[inline(always)]
@@ -804,14 +836,6 @@ pub union BgpMsgUn {
     pub route_refresh: RouteRefreshMsgLayout,
 }
 
-impl Default for BgpMsgUn {
-    fn default() -> Self {
-        Self {
-            open: OpenMsgLayout::default(),
-        }
-    }
-}
-
 /// Represents a BGP message header and its fixed-size payload part.
 ///
 /// This struct provides a unified interface for working with different BGP messages.
@@ -850,19 +874,19 @@ impl BgpHdr {
         let total_len = (COMMON_HDR_LEN + payload_len(msg_type)) as u16;
         let data = match msg_type {
             BgpMsgType::Open => BgpMsgUn {
-                open: OpenMsgLayout::default(),
+                open: OpenMsgLayout::new(),
             },
             BgpMsgType::Update => BgpMsgUn {
-                update: UpdateInitialMsgLayout::default(),
+                update: UpdateInitialMsgLayout::new(),
             },
             BgpMsgType::Notification => BgpMsgUn {
-                notification: NotificationMsgLayout::default(),
+                notification: NotificationMsgLayout::new(),
             },
             BgpMsgType::KeepAlive => BgpMsgUn {
-                keep_alive: KeepAliveMsgLayout::default(),
+                keep_alive: KeepAliveMsgLayout::new(),
             },
             BgpMsgType::RouteRefresh => BgpMsgUn {
-                route_refresh: RouteRefreshMsgLayout::default(),
+                route_refresh: RouteRefreshMsgLayout::new(),
             },
         };
 
@@ -1274,13 +1298,6 @@ impl BgpHdr {
     }
 }
 
-impl Default for BgpHdr {
-    /// Creates a default `BgpHdr`, which is a KEEPALIVE message.
-    fn default() -> Self {
-        Self::new(BgpMsgType::KeepAlive)
-    }
-}
-
 impl core::fmt::Debug for BgpHdr {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut s = f.debug_struct("BgpHdr");
@@ -1429,7 +1446,7 @@ mod tests {
     #[test]
     fn test_bgphdr_new_and_default() {
         let hdr_new = BgpHdr::new(BgpMsgType::Open);
-        let hdr_default = BgpHdr::default();
+        let hdr_default = BgpHdr::new(BgpMsgType::KeepAlive);
         let expected_marker = [0xff; 16];
         assert_eq!(hdr_new.marker, expected_marker);
         assert_eq!(hdr_new.length(), (19 + OpenMsgLayout::LEN) as u16);
