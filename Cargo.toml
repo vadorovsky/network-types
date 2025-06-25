@@ -16,3 +16,6 @@ serde = { version = "1", default-features = false, features = ["derive"], option
 aya-ebpf = { git = "https://github.com/aya-rs/aya", branch = "main" }
 aya-log-ebpf = { git = "https://github.com/aya-rs/aya", branch = "main" }
 bincode = { version = "2.0.0-rc.3", default-features = false, features = ["serde","alloc"] }
+
+[features]
+serde = ["dep:serde"]
