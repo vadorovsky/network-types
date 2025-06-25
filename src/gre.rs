@@ -7,20 +7,17 @@ use core::fmt;
 /// protocols inside virtual point-to-point links over an Internet Protocol network.
 ///
 /// This struct represents the maximum possible size of the GRE header, including
-/// the optional checksum and reserved fields. The presence of these optional fields
-/// is determined by the `checksum_present` flag. The `header_len()` method can be
-/// used to determine the actual length of the header at runtime (4 or 8 bytes).
+/// the optional checksum, key, sequence, and reserved fields. The flags at the start of the header
+/// determine the presence of these fields. The `header_len()` method can be
+/// used to determine the actual length of the header at runtime (4, 8, 12, or 16 bytes).
 ///
 /// For more details, see RFC 2784: https://www.rfc-editor.org/rfc/rfc2784.html
-/// 
+///
 /// /// A struct containing the optional checksum and reserved fields.
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
-pub struct GreHdr {
-    /// A 16-bit field containing the Checksum Present flag (1 bit),
-    /// Reserved0 (12 bits), and Version (3 bits).
-    /// In a compliant packet, Reserved0 and Version MUST be 0.
+pub struct GreHdr{
+    /// A 16-bit field containing the flags and version number.
     pub flags_reserved0_ver: [u8; 2],
     /// The protocol type of the encapsulated payload packet.
     pub protocol_type: EtherType,
@@ -220,6 +217,87 @@ pub union GreDataUnion {
     pub payload_start: [u8; 12],
 }
 
+#[cfg(feature = "serde")]
+mod serde_impl {
+    use super::*;
+    use core::fmt;
+    use serde::{de::Error, Deserializer, Serializer};
+
+    impl<'a> serde::Serialize for GreHdr {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            let len = self.total_hdr_len();
+            // SAFETY: GreHdr is repr(C, packed) and we only serialize
+            // the valid part of the header as determined by `total_hdr_len`.
+            let bytes =
+                unsafe { core::slice::from_raw_parts(self as *const _ as *const u8, len) };
+            serializer.serialize_bytes(bytes)
+        }
+    }
+
+    struct GreHdrVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for GreHdrVisitor {
+        type Value = GreHdr;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "a byte slice representing a GRE header")
+        }
+
+        fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
+        where
+            E: Error,
+        {
+            const MIN_HDR_LEN: usize = 4;
+            if v.len() < MIN_HDR_LEN {
+                return Err(E::custom("GRE header too short, must be at least 4 bytes"));
+            }
+
+            let flags = v[0];
+            let mut expected_len = MIN_HDR_LEN;
+            if (flags & 0x80) != 0 {
+                expected_len += 4;
+            } // Checksum
+            if (flags & 0x20) != 0 {
+                expected_len += 4;
+            } // Key
+            if (flags & 0x10) != 0 {
+                expected_len += 4;
+            } // Sequence
+
+            if v.len() < expected_len {
+                return Err(E::custom("Incomplete GRE header for flags set"));
+            }
+
+            // The input slice `v` may be longer than the actual header. We only want
+            // to copy `expected_len` bytes. We copy to a zero-padded, 16-byte
+            // array that matches the full size of GreHdr to safely cast it.
+            // SAFETY: 
+            let mut hdr_bytes = [0u8; GreHdr::LEN];
+            hdr_bytes[..expected_len].copy_from_slice(&v[..expected_len]);
+
+            // Safety: We've created a 16-byte buffer on the stack and copied the
+            // received bytes into it. It's now safe to interpret these bytes
+            // as a GreHdr. The struct is `Copy`, so we are creating a new owned
+            // value.
+            let hdr = unsafe { *(hdr_bytes.as_ptr() as *const GreHdr) };
+
+            Ok(hdr)
+        }
+    }
+
+    impl<'de> serde::Deserialize<'de> for GreHdr {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_bytes(GreHdrVisitor)
+        }
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -336,5 +414,119 @@ mod tests {
 
         gre_header.set_checksum_present(false);
         assert_eq!(gre_header.total_hdr_len(), 12);
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn test_custom_serialize() {
+        use bincode::{config::standard, serde::encode_to_vec};
+
+        let mut gre_header = GreHdr {
+            flags_reserved0_ver: [0; 2],
+            protocol_type: EtherType::Ipv4,
+            data: GreDataUnion { payload_start: [0; 12] },
+        };
+
+        gre_header.set_checksum_present(true);
+        gre_header.set_key_present(true);
+        gre_header.set_sequence_present(true);
+        gre_header.set_version(0);
+
+        gre_header.set_checksum([0x12, 0x34]);
+        gre_header.set_key([0xAA, 0xBB, 0xCC, 0xDD]);
+        gre_header.set_sequence_number([0x11, 0x22, 0x33, 0x44]);
+
+        let options = standard().with_fixed_int_encoding().with_big_endian();
+        let serialized = encode_to_vec(&gre_header, options).unwrap();
+
+        assert_eq!(serialized.len(), gre_header.total_hdr_len());
+
+        assert_eq!(serialized[0], 0xB0);
+        assert_eq!(serialized[1], 0x00);
+        assert_eq!(serialized[2], 0x08);
+        assert_eq!(serialized[3], 0x00);
+        assert_eq!(serialized[4], 0x12);
+        assert_eq!(serialized[5], 0x34);
+        assert_eq!(serialized[8], 0xAA);
+        assert_eq!(serialized[9], 0xBB);
+        assert_eq!(serialized[10], 0xCC);
+        assert_eq!(serialized[11], 0xDD);
+        assert_eq!(serialized[12], 0x11);
+        assert_eq!(serialized[13], 0x22);
+        assert_eq!(serialized[14], 0x33);
+        assert_eq!(serialized[15], 0x44);
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn test_custom_deserialize_valid() {
+        use bincode::{config::standard, serde::decode_from_slice};
+
+        let mut gre_bytes = [0u8; HDR_MAX_LEN];
+
+        // Set flags and protocol type
+        gre_bytes[0] = 0xB0;
+        gre_bytes[1] = 0x00;
+        gre_bytes[2] = 0x08;
+        gre_bytes[3] = 0x00;
+
+        // Checksum
+        gre_bytes[4] = 0x12;
+        gre_bytes[5] = 0x34;
+
+        // Key
+        gre_bytes[8] = 0xAA;
+        gre_bytes[9] = 0xBB;
+        gre_bytes[10] = 0xCC;
+        gre_bytes[11] = 0xDD;
+
+        // Sequence number
+        gre_bytes[12] = 0x11;
+        gre_bytes[13] = 0x22;
+        gre_bytes[14] = 0x33;
+        gre_bytes[15] = 0x44;
+
+        let options = standard().with_fixed_int_encoding().with_big_endian();
+        let (deserialized, bytes_consumed) = decode_from_slice::<GreHdr, _>(&gre_bytes, options).unwrap();
+
+        assert_eq!(bytes_consumed, 16);
+        assert!(deserialized.checksum_present());
+        assert!(deserialized.key_present());
+        assert!(deserialized.sequence_present());
+        assert_eq!(deserialized.get_version(), 0);
+        assert_eq!(deserialized.get_protocol_type(), EtherType::Ipv4);
+        assert_eq!(deserialized.get_checksum(), Some([0x12, 0x34]));
+        assert_eq!(deserialized.get_key(), Some([0xAA, 0xBB, 0xCC, 0xDD]));
+        assert_eq!(deserialized.get_sequence_number(), Some([0x11, 0x22, 0x33, 0x44]));
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn test_custom_deserialize_invalid() {
+        use bincode::{config::standard, error::DecodeError, serde::decode_from_slice};
+
+        let empty_bytes: [u8; 0] = [];
+        let options = standard().with_fixed_int_encoding().with_big_endian();
+        let result = decode_from_slice::<GreHdr, _>(&empty_bytes, options);
+        assert!(matches!(result, Err(DecodeError::Other(_))));
+
+        let short_bytes = [0x80, 0x00, 0x08];
+        let result = decode_from_slice::<GreHdr, _>(&short_bytes, options);
+        assert!(matches!(result, Err(DecodeError::Other(_))));
+
+        let incomplete_checksum = [0x80, 0x00, 0x08, 0x00, 0x12];
+        let result = decode_from_slice::<GreHdr, _>(&incomplete_checksum, options);
+        assert!(matches!(result, Err(DecodeError::Other(_))));
+
+        let incomplete_key = [0x20, 0x00, 0x08, 0x00, 0x12, 0x34, 0x00, 0x00, 0xAA];
+        let result = decode_from_slice::<GreHdr, _>(&incomplete_key, options);
+        assert!(matches!(result, Err(DecodeError::Other(_))));
+
+        let incomplete_seq = [
+            0x10, 0x00, 0x08, 0x00, 0x12, 0x34, 0x00, 0x00,
+            0xAA, 0xBB, 0xCC, 0xDD, 0x11
+        ];
+        let result = decode_from_slice::<GreHdr, _>(&incomplete_seq, options);
+        assert!(matches!(result, Err(DecodeError::Other(_))));
     }
 }
