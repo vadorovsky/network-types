@@ -641,22 +641,6 @@ impl QuicHdr {
             header_type,
         })
     }
-
-    /// Validates and returns a CID length.
-    ///
-    /// # Parameters
-    /// * `b`: The length byte to check.
-    ///
-    /// # Returns
-    /// `Ok(usize)` if the length is valid, `Err(QuicHdrError::InvalidLength)` otherwise.
-    #[inline(always)]
-    pub fn parse_cid_len(b: u8) -> Result<usize, QuicHdrError> {
-        if b as usize > QUIC_MAX_CID_LEN {
-            Err(QuicHdrError::InvalidLength)
-        } else {
-            Ok(b as usize)
-        }
-    }
 }
 
 impl<'a> ParsedQuicHdr<'a> {
@@ -862,6 +846,7 @@ impl<'a> ParsedQuicHdr<'a> {
         }
     }
 
+
     /// Gets the effective length of the Destination Connection ID.
     ///
     /// For Long Headers, this length is read directly from the header data. For Short
@@ -871,9 +856,9 @@ impl<'a> ParsedQuicHdr<'a> {
     /// # Returns
     /// The length of the Destination Connection ID in bytes.
     #[inline(always)]
-    pub fn dc_id_effective_len(&self) -> u8 {
+    pub fn dc_id_len(&self) -> u8 {
         match self.header_type {
-            // Safety: Header form is known.
+            // Safety: A header form is known.
             QuicHeaderType::QuicLong => unsafe { self.hdr.inner.long.dst.len() },
             QuicHeaderType::QuicShort { dc_id_len } => dc_id_len,
         }
@@ -881,20 +866,47 @@ impl<'a> ParsedQuicHdr<'a> {
 
     /// Gets a slice containing the bytes of the Destination Connection ID.
     ///
-    /// The length of the slice is determined by `dc_id_effective_len()`.
+    /// The length of the slice is determined by `dc_id_len()`.
     ///
     /// # Returns
     /// A byte slice (`&[u8]`) representing the Destination Connection ID.
     #[inline(always)]
     pub fn dc_id(&self) -> &[u8] {
-        let n = self.dc_id_effective_len() as usize;
+        let n = self.dc_id_len() as usize;
         let raw = match self.header_type {
             // Safety: We are in a `ParsedQuicHdr`, so we know which union variant is active.
             QuicHeaderType::QuicLong => unsafe { &self.hdr.inner.long.dst.bytes },
             QuicHeaderType::QuicShort { .. } => unsafe { &self.hdr.inner.short.dst.bytes },
         };
-        // Safety: `dc_id_effective_len` is bounded by `QUIC_MAX_CID_LEN` during parsing.
+        // Safety: `dc_id_len` is bounded by `QUIC_MAX_CID_LEN` during parsing.
         unsafe { raw.get_unchecked(..n) }
+    }
+
+    /// Gets a slice containing the bytes of the Destination Connection ID.
+    ///
+    /// # Returns
+    /// A byte slice (`[u8; QUIC_MAX_CID_LEN]`) representing the Destination Connection ID.
+    #[inline(always)]
+    pub fn dc_id_raw(&self) -> [u8; QUIC_MAX_CID_LEN] {
+        match self.header_type {
+            // Safety: We are in a `ParsedQuicHdr`, so we know which union variant is active.
+            QuicHeaderType::QuicLong => unsafe { self.hdr.inner.long.dst.bytes },
+            QuicHeaderType::QuicShort { .. } => unsafe { self.hdr.inner.short.dst.bytes },
+        }
+    }
+
+    /// Gets the effective length of the Source Connection ID bytes if this is a Long Header.
+    ///
+    /// # Returns
+    /// `Ok(u8)` if successful, `Err(QuicHdrError::InvalidHeaderForm)` if not a Long Header.
+    #[inline(always)]
+    pub fn sc_id_len(&self) -> Result<u8, QuicHdrError> {
+        if !self.is_long_header() {
+            Err(QuicHdrError::InvalidHeaderForm)
+        } else {
+            // Safety: A header form has been checked.
+            Ok(unsafe { self.hdr.inner.long.src.as_slice().len() as u8 })
+        }
     }
 
     /// Gets a slice of the Source Connection ID bytes if this is a Long Header.
@@ -908,6 +920,20 @@ impl<'a> ParsedQuicHdr<'a> {
         } else {
             // Safety: A header form has been checked.
             Ok(unsafe { self.hdr.inner.long.src.as_slice() })
+        }
+    }
+
+    /// Gets a slice of the Source Connection ID bytes with padding if this is a Long Header.
+    ///
+    /// # Returns
+    /// `Ok([u8; QUIC_MAX_CID_LEN])` if successful, `Err(QuicHdrError::InvalidHeaderForm)` if not a Long Header.
+    #[inline(always)]
+    pub fn sc_id_raw(&self) -> Result<[u8; QUIC_MAX_CID_LEN], QuicHdrError> {
+        if !self.is_long_header() {
+            Err(QuicHdrError::InvalidHeaderForm)
+        } else {
+            // Safety: A header form has been checked.
+            Ok(unsafe { self.hdr.inner.long.src.bytes })
         }
     }
 
@@ -1622,7 +1648,7 @@ mod tests {
         let scid_data = [0xA, 0xB, 0xC, 0xD];
         hdr.set_dc_id(&dcid_data);
         assert!(hdr.set_sc_id(&scid_data).is_ok());
-        assert_eq!(hdr.dc_id_effective_len(), 8);
+        assert_eq!(hdr.dc_id_len(), 8);
         assert_eq!(hdr.dc_id_len_on_wire(), Ok(8));
         assert_eq!(hdr.dc_id(), &dcid_data);
         assert_eq!(hdr.sc_id_len_on_wire(), Ok(4));
@@ -1659,7 +1685,7 @@ mod tests {
         } else {
             panic!("Header type mismatch after setting DCID for short header.");
         }
-        assert_eq!(hdr.dc_id_effective_len(), dcid_data.len() as u8);
+        assert_eq!(hdr.dc_id_len(), dcid_data.len() as u8);
         assert_eq!(hdr.dc_id(), &dcid_data);
         assert!(hdr.sc_id_len_on_wire().is_err());
         assert!(hdr.sc_id().is_err());
@@ -1716,7 +1742,7 @@ mod tests {
         assert!(de.is_long_header());
         assert_eq!(de.header_type(), QuicHeaderType::QuicLong);
         assert_eq!(de.version().unwrap(), 0x01020304);
-        assert_eq!(de.dc_id_effective_len(), 8);
+        assert_eq!(de.dc_id_len(), 8);
         assert_eq!(de.dc_id(), &[0xAA; 8]);
         assert_eq!(de.sc_id_len_on_wire().unwrap(), 4);
         assert_eq!(de.sc_id().unwrap(), &[0xBB; 4]);
@@ -1756,7 +1782,7 @@ mod tests {
         } else {
             panic!("Deserialized to wrong header type: {:?}", de.header_type());
         }
-        assert_eq!(de.dc_id_effective_len(), dcid_data.len() as u8);
+        assert_eq!(de.dc_id_len(), dcid_data.len() as u8);
         assert_eq!(de.dc_id(), &dcid_data);
         assert_eq!(de.short_spin_bit(), Ok(true));
         assert_eq!(de.short_reserved_bits(), Ok(0b00));
@@ -1849,7 +1875,7 @@ mod tests {
         assert_eq!(parsed.short_spin_bit(), Ok(false));
         assert_eq!(parsed.short_key_phase(), Ok(true));
         assert_eq!(parsed.short_packet_number_length(), Ok(2));
-        assert_eq!(parsed.dc_id_effective_len(), known_dcid_len);
+        assert_eq!(parsed.dc_id_len(), known_dcid_len);
         assert_eq!(parsed.dc_id(), &known_dcid_value_from_context);
     }
 
@@ -2024,14 +2050,14 @@ mod tests {
         let mut hdr = storage.parse(0).unwrap();
         hdr.set_dc_id(&[]);
         assert!(hdr.set_sc_id(&[]).is_ok());
-        assert_eq!(hdr.dc_id_effective_len(), 0);
+        assert_eq!(hdr.dc_id_len(), 0);
         assert_eq!(hdr.dc_id(), &[]);
         assert_eq!(hdr.sc_id_len_on_wire(), Ok(0));
         assert_eq!(hdr.sc_id().unwrap(), &[]);
         let mut short_storage = QuicHdr::new(QuicHeaderType::QuicShort { dc_id_len: 0 });
         let mut short_hdr = short_storage.parse(0).unwrap();
         short_hdr.set_dc_id(&[]);
-        assert_eq!(short_hdr.dc_id_effective_len(), 0);
+        assert_eq!(short_hdr.dc_id_len(), 0);
         assert_eq!(short_hdr.dc_id(), &[]);
     }
 
