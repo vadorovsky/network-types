@@ -1,300 +1,254 @@
-use crate::eth::EtherType;
-use core::fmt;
+#![no_std]
 
-/// Represents a Generic Routing Encapsulation (GRE) header as defined in RFC 2784.
-///
-/// GRE is a tunneling protocol that encapsulates a wide variety of network layer
-/// protocols inside virtual point-to-point links over an Internet Protocol network.
-///
-/// This struct represents the maximum possible size of the GRE header, including
-/// the optional checksum, key, sequence, and reserved fields. The flags at the start of the header
-/// determine the presence of these fields. The `header_len()` method can be
-/// used to determine the actual length of the header at runtime (4, 8, 12, or 16 bytes).
-///
-/// For more details, see RFC 2784: https://www.rfc-editor.org/rfc/rfc2784.html
-///
-/// /// A struct containing the optional checksum and reserved fields.
-#[repr(C, packed)]
-#[derive(Copy, Clone)]
-pub struct GreHdr{
-    /// A 16-bit field containing the flags and version number.
-    pub flags_reserved0_ver: [u8; 2],
-    /// The protocol type of the encapsulated payload packet.
-    pub protocol_type: EtherType,
-    /// A union representing the optional part of the header. Its interpretation
-    /// depends on the flags set in `flags_reserved0_ver`.
-    pub data: GreDataUnion,
+use core::ptr;
+
+/// Length of the base GRE header in bytes.
+const GRE_BASE_HDR_LEN: usize = 4;
+/// Length of the Checksum and Reserved1 fields in bytes.
+const GRE_CHECKSUM_HDR_LEN: usize = 4; // Checksum (2 bytes) + Reserved1 (2 bytes)
+/// Length of the Key field in bytes.
+const GRE_KEY_HDR_LEN: usize = 4;
+/// Length of the Sequence Number field in bytes.
+const GRE_SEQ_HDR_LEN: usize = 4;
+/// Bitmask for the Checksum Present flag (C flag).
+const C_FLAG_MASK: u8 = 0x80;
+/// Bitmask for the Key Present flag (K flag).
+const K_FLAG_MASK: u8 = 0x20;
+/// Bitmask for the Sequence Number Present flag (S flag).
+const S_FLAG_MASK: u8 = 0x10;
+/// Bitmask for the Version field.
+const VER_MASK: u8 = 0x07;
+
+/// A custom error type for parsing failures.
+#[derive(Debug, PartialEq)]
+pub enum GreParseError {
+    /// The provided slice is too short to contain even the base GRE header.
+    TooShortForBaseHeader,
+    /// The provided slice is too short for the fields indicated by the flags.
+    TooShortForOptionalFields,
 }
 
-impl GreHdr {
+/// A custom error type for write operations.
+#[derive(Debug, PartialEq)]
+pub enum GreWriteError {
+    /// The field you are trying to write to is not present in the header.
+    FieldNotPresent,
+}
 
-    pub const LEN: usize = size_of::<GreHdr>();
-    
-    /// Checks if the Checksum Present bit (C) is set.
-    #[inline]
-    pub fn checksum_present(&self) -> bool {
-        (self.flags_reserved0_ver[0] & 0x80) != 0
-    }
+/// A safe wrapper for a GRE packet that provides read/write access.
+///
+/// This struct holds a mutable reference to a byte buffer and allows safe
+/// manipulation of the GRE header fields by calculating field offsets based
+/// on the header flags and using pointer arithmetic.
+pub struct GreHdr<'a> {
+    buffer: &'a mut [u8],
+}
 
-    /// Sets or clears the Checksum Present bit (C).
-    #[inline]
-    pub fn set_checksum_present(&mut self, present: bool) {
-        if present {
-            self.flags_reserved0_ver[0] |= 0x80;
-        } else {
-            self.flags_reserved0_ver[0] &= !0x80;
+impl<'a> GreHdr<'a> {
+    /// Creates a new `GreHdr` wrapper from a mutable byte slice.
+    ///
+    /// This function performs the critical validation: ensuring the slice is
+    /// long enough for the fixed portion and all optional fields indicated
+    /// by the C, K, and S flags. This check is essential for the eBPF verifier.
+    pub fn new(buffer: &'a mut [u8]) -> Result<Self, GreParseError> {
+        if buffer.len() < GRE_BASE_HDR_LEN {
+            return Err(GreParseError::TooShortForBaseHeader);
         }
-    }
 
-    /// Checks if the Key Present bit (K) is set.
-    #[inline]
-    pub fn key_present(&self) -> bool {
-        (self.flags_reserved0_ver[0] & 0x20) != 0
-    }
+        // Read the first byte for flags to determine expected length
+        let flags = buffer[0];
+        let mut expected_len = GRE_BASE_HDR_LEN;
+        if (flags & C_FLAG_MASK) != 0 { expected_len += GRE_CHECKSUM_HDR_LEN; }
+        if (flags & K_FLAG_MASK) != 0 { expected_len += GRE_KEY_HDR_LEN; }
+        if (flags & S_FLAG_MASK) != 0 { expected_len += GRE_SEQ_HDR_LEN; }
 
-    /// Sets or clears the Key Present bit (K).
-    #[inline]
-    pub fn set_key_present(&mut self, present: bool) {
-        if present {
-            self.flags_reserved0_ver[0] |= 0x20;
-        } else {
-            self.flags_reserved0_ver[0] &= !0x20;
+        if buffer.len() < expected_len {
+            return Err(GreParseError::TooShortForOptionalFields);
         }
+
+        Ok(Self { buffer })
     }
 
-    /// Checks if the Sequence Number Present bit (S) is set.
-    #[inline]
-    pub fn sequence_present(&self) -> bool {
-        (self.flags_reserved0_ver[0] & 0x10) != 0
-    }
-
-    /// Sets or clears the Sequence Number Present bit (S).
-    #[inline]
-    pub fn set_sequence_present(&mut self, present: bool) {
-        if present {
-            self.flags_reserved0_ver[0] |= 0x10;
-        } else {
-            self.flags_reserved0_ver[0] &= !0x10;
-        }
-    }
-
-    /// Gets the 3-bit Version number.
-    #[inline]
-    pub fn get_version(&self) -> u8 {
-        self.flags_reserved0_ver[1] & 0x07
-    }
-
-    /// Sets the 3-bit Version number. Per RFC 2784, this MUST be 0.
-    #[inline]
-    pub fn set_version(&mut self, version: u8) {
-        self.flags_reserved0_ver[1] = (self.flags_reserved0_ver[1] & 0xF8) | (version & 0x07);
-    }
-
-    /// Gets the Protocol Type as a big-endian 2-byte array.
-    #[inline]
-    pub fn get_protocol_type(&self) -> EtherType {
-        self.protocol_type
-    }
-
-    /// Sets the Protocol Type from a big-endian 2-byte array.
-    #[inline]
-    pub fn set_protocol_type(&mut self, protocol_type: EtherType) {
-        self.protocol_type = protocol_type;
-    }
-
-    /// Gets the checksum as a big-endian 2-byte array.
-    #[inline]
-    pub fn get_checksum(&self) -> Option<[u8; 2]> {
-        if self.checksum_present() {
-            // SAFETY: Unsafe access to check field made safe by the guard above.
-            Some(unsafe { self.data.fields.check })
-        } else {
-            None
-        }
-    }
-
-    /// Sets the checksum from a big-endian 2-byte array.
-    #[inline]
-    #[allow(clippy::unnecessary_unsafe_block)]
-    pub fn set_checksum(&mut self, checksum: [u8; 2]) {
-        self.set_checksum_present(true);
-        // SAFETY: The `unsafe` block is retained to satisfy the compiler's
-        // E0133 error, even though the operation is conceptually safe.
-        unsafe {
-            self.data.fields.check = checksum;
-        }
-    }
-
-    /// Gets the key as a big-endian 4-byte array, if present.
-    #[inline]
-    pub fn get_key(&self) -> Option<[u8; 4]> {
-        if self.key_present() {
-            Some(unsafe { self.data.fields.key })
-        } else {
-            None
-        }
-    }
-
-    /// Sets the key and ensures the Key Present bit is set.
-    #[inline]
-    #[allow(clippy::unnecessary_unsafe_block)]
-    pub fn set_key(&mut self, key: [u8; 4]) {
-        self.set_key_present(true);
-        unsafe { self.data.fields.key = key; }
-    }
-
-    /// Gets the sequence number as a big-endian 4-byte array, if present.
-    #[inline]
-    pub fn get_sequence_number(&self) -> Option<[u8; 4]> {
-        if self.sequence_present() {
-            Some(unsafe { self.data.fields.sequence })
-        } else {
-            None
-        }
-    }
-
-    /// Sets the sequence number and ensures the Sequence Number Present bit is set.
-    #[inline]
-    #[allow(clippy::unnecessary_unsafe_block)]
-    pub fn set_sequence_number(&mut self, sequence: [u8; 4]) {
-        self.set_sequence_present(true);
-        unsafe { self.data.fields.sequence = sequence; }
-    }
-    
-    /// Returns the total logical length of the GRE header based on the active flags.
-    #[inline]
-    pub fn total_hdr_len(&self) -> usize {
-        let mut len = 4; // Base header size
-        if self.checksum_present() { len += 4; }
-        if self.key_present() { len += 4; }
-        if self.sequence_present() { len += 4; }
+    /// Calculates the total length of the GRE header based on the flags.
+    ///
+    /// The length depends on which optional fields are present, as indicated by
+    /// the C, K, and S flags. The base header is always 4 bytes, and each optional
+    /// field adds additional bytes to the total length.
+    pub fn header_len(&self) -> usize {
+        let mut len = GRE_BASE_HDR_LEN;
+        if self.c_flag() { len += GRE_CHECKSUM_HDR_LEN; }
+        if self.k_flag() { len += GRE_KEY_HDR_LEN; }
+        if self.s_flag() { len += GRE_SEQ_HDR_LEN; }
         len
     }
-}
 
-/// Custom Debug implementation for GreHdr to correctly format the inner union.
-impl fmt::Debug for GreHdr {
-    /// Formats the GreHdr for display, choosing the correct union variant to show.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let protocol_type = self.protocol_type;
-        let mut s = f.debug_struct("GreHdr");
-        s.field("flag_reserved0_ver", &self.flags_reserved0_ver);
-        s.field("protocol_type", &protocol_type);
-
-        if self.checksum_present() || self.key_present() || self.sequence_present() {
-            // SAFETY: It is safe to access `fields` because we know at least one
-            // optional field is present, so we format that view of the union.
-            s.field("data", unsafe { &self.data.fields });
-        } else {
-            // SAFETY: It is safe to access `payload_start` because we know
-            // no optional fields are present.
-            s.field("data", unsafe { &self.data.payload_start });
-        }
-        s.finish()
+    /// Returns the flags byte from the GRE header.
+    ///
+    /// This byte contains the C, K, and S flags that indicate which optional fields are present.
+    #[inline(always)]
+    pub fn flags(&self) -> u8 {
+        // Safe because `new()` confirmed the buffer is at least 4 bytes long.
+        self.buffer[0]
     }
-}
 
-#[repr(C, packed)]
-#[derive(Debug, Copy, Clone)]
-pub struct GreOptionalFields {
-    /// This field is only valid if the Checksum Present flag is set.
-    pub check: [u8; 2],
-    /// A reserved field for future use, which MUST be transmitted as zero (optional).
-    /// This field is only present if the Checksum Present flag is set.
-    pub _reserved1: [u8; 2],
-    pub key: [u8; 4],
-    pub sequence: [u8; 4],
-}
+    /// Returns the GRE version field (3 bits).
+    ///
+    /// The version field indicates the GRE protocol version.
+    #[inline(always)]
+    pub fn version(&self) -> u8 {
+        // Safe because `new()` confirmed the buffer is at least 4 bytes long.
+        self.buffer[1] & VER_MASK
+    }
 
-/// A union representing the 12 bytes that can be optional GRE fields
-/// or the start of the payload data.
-#[repr(C, packed)]
-#[derive(Copy, Clone)]
-pub union GreDataUnion {
-    /// The interpretation when any optional fields are present.
-    pub fields: GreOptionalFields,
-    /// The interpretation when no optional fields are present.
-    pub payload_start: [u8; 12],
-}
+    /// Returns true if the Checksum Present flag (C flag) is set.
+    ///
+    /// When this flag is set, the Checksum and Reserved1 fields are present in the header.
+    #[inline(always)]
+    pub fn c_flag(&self) -> bool { (self.flags() & C_FLAG_MASK) != 0 }
 
-#[cfg(feature = "serde")]
-mod serde_impl {
-    use super::*;
-    use core::fmt;
-    use serde::{de::Error, Deserializer, Serializer};
+    /// Returns true if the Key Present flag (K flag) is set.
+    ///
+    /// When this flag is set, the Key field is present in the header.
+    #[inline(always)]
+    pub fn k_flag(&self) -> bool { (self.flags() & K_FLAG_MASK) != 0 }
 
-    impl<'a> serde::Serialize for GreHdr {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            let len = self.total_hdr_len();
-            // SAFETY: GreHdr is repr(C, packed) and we only serialize
-            // the valid part of the header as determined by `total_hdr_len`.
-            let bytes =
-                unsafe { core::slice::from_raw_parts(self as *const _ as *const u8, len) };
-            serializer.serialize_bytes(bytes)
+    /// Returns true if the Sequence Number Present flag (S flag) is set.
+    ///
+    /// When this flag is set, the Sequence Number field is present in the header.
+    #[inline(always)]
+    pub fn s_flag(&self) -> bool { (self.flags() & S_FLAG_MASK) != 0 }
+
+    /// Returns the Protocol Type field from the GRE header.
+    ///
+    /// This field indicates the protocol type of the payload packet.
+    #[inline(always)]
+    pub fn protocol_type(&self) -> u16 {
+        u16::from_be_bytes([self.buffer[2], self.buffer[3]])
+    }
+
+    /// Returns the Checksum and Reserved1 fields if the C flag is set.
+    ///
+    /// These fields are only present when the C flag is set. The Checksum field
+    /// contains the checksum of the GRE header and payload, and the Reserved1 field
+    /// is reserved for future use.
+    ///
+    /// Returns `None` if the C flag is not set.
+    pub fn checksum_and_reserved(&self) -> Option<(u16, u16)> {
+        if !self.c_flag() { return None; }
+        let offset = GRE_BASE_HDR_LEN;
+        // The `new()` constructor guarantees the buffer is long enough for this read.
+        unsafe {
+            let checksum_ptr = self.buffer.as_ptr().add(offset) as *const u16;
+            let reserved_ptr = self.buffer.as_ptr().add(offset + 2) as *const u16;
+            let checksum = u16::from_be(ptr::read_unaligned(checksum_ptr));
+            let reserved = u16::from_be(ptr::read_unaligned(reserved_ptr));
+            Some((checksum, reserved))
         }
     }
 
-    struct GreHdrVisitor;
-
-    impl<'de> serde::de::Visitor<'de> for GreHdrVisitor {
-        type Value = GreHdr;
-
-        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "a byte slice representing a GRE header")
-        }
-
-        fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
-        where
-            E: Error,
-        {
-            const MIN_HDR_LEN: usize = 4;
-            if v.len() < MIN_HDR_LEN {
-                return Err(E::custom("GRE header too short, must be at least 4 bytes"));
-            }
-
-            let flags = v[0];
-            let mut expected_len = MIN_HDR_LEN;
-            if (flags & 0x80) != 0 {
-                expected_len += 4;
-            } // Checksum
-            if (flags & 0x20) != 0 {
-                expected_len += 4;
-            } // Key
-            if (flags & 0x10) != 0 {
-                expected_len += 4;
-            } // Sequence
-
-            if v.len() < expected_len {
-                return Err(E::custom("Incomplete GRE header for flags set"));
-            }
-
-            // The input slice `v` may be longer than the actual header. We only want
-            // to copy `expected_len` bytes. We copy to a zero-padded, 16-byte
-            // array that matches the full size of GreHdr to safely cast it.
-            // SAFETY: 
-            let mut hdr_bytes = [0u8; GreHdr::LEN];
-            hdr_bytes[..expected_len].copy_from_slice(&v[..expected_len]);
-
-            // Safety: We've created a 16-byte buffer on the stack and copied the
-            // received bytes into it. It's now safe to interpret these bytes
-            // as a GreHdr. The struct is `Copy`, so we are creating a new owned
-            // value.
-            let hdr = unsafe { *(hdr_bytes.as_ptr() as *const GreHdr) };
-
-            Ok(hdr)
+    /// Returns the Key field if the K flag is set.
+    ///
+    /// The Key field is only present when the K flag is set. It contains a key
+    /// value that can be used to identify a particular GRE tunnel.
+    ///
+    /// Returns `None` if the K flag is not set.
+    pub fn key(&self) -> Option<u32> {
+        if !self.k_flag() { return None; }
+        let mut offset = GRE_BASE_HDR_LEN;
+        if self.c_flag() { offset += GRE_CHECKSUM_HDR_LEN; }
+        unsafe {
+            let key_ptr = self.buffer.as_ptr().add(offset) as *const u32;
+            Some(u32::from_be(ptr::read_unaligned(key_ptr)))
         }
     }
 
-    impl<'de> serde::Deserialize<'de> for GreHdr {
-        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserializer.deserialize_bytes(GreHdrVisitor)
+    /// Returns the Sequence Number field if the S flag is set.
+    ///
+    /// The Sequence Number field is only present when the S flag is set. It contains
+    /// a sequence number that can be used to maintain packet order.
+    ///
+    /// Returns `None` if the S flag is not set.
+    pub fn sequence_num(&self) -> Option<u32> {
+        if !self.s_flag() { return None; }
+        let mut offset = GRE_BASE_HDR_LEN;
+        if self.c_flag() { offset += GRE_CHECKSUM_HDR_LEN; }
+        if self.k_flag() { offset += GRE_KEY_HDR_LEN; }
+        unsafe {
+            let seq_ptr = self.buffer.as_ptr().add(offset) as *const u32;
+            Some(u32::from_be(ptr::read_unaligned(seq_ptr)))
         }
+    }
+    
+    /// Sets the 3-bit version number.
+    ///
+    /// This method updates the version field in the GRE header, ensuring that
+    /// only the 3 bits of the version field are modified.
+    pub fn set_version(&mut self, version: u8) {
+        let mut second_byte = self.buffer[1];
+        second_byte &= !VER_MASK;
+        second_byte |= version & VER_MASK;
+        self.buffer[1] = second_byte;
+    }
+
+    /// Sets the Protocol Type field in the GRE header.
+    ///
+    /// This field indicates the protocol type of the payload packet.
+    pub fn set_protocol_type(&mut self, protocol_type: u16) {
+        self.buffer[2..4].copy_from_slice(&protocol_type.to_be_bytes());
+    }
+
+    /// Sets the Checksum and Reserved1 fields.
+    ///
+    /// These fields can only be set when the C flag is set. The Checksum field
+    /// contains the checksum of the GRE header and payload, and the Reserved1 field
+    /// is reserved for future use.
+    ///
+    /// Returns an error if the C flag is not set.
+    pub fn set_checksum_and_reserved(&mut self, checksum: u16, reserved: u16) -> Result<(), GreWriteError> {
+        if !self.c_flag() { return Err(GreWriteError::FieldNotPresent); }
+        let offset = GRE_BASE_HDR_LEN;
+        unsafe {
+            let checksum_ptr = self.buffer.as_mut_ptr().add(offset) as *mut u16;
+            let reserved_ptr = self.buffer.as_mut_ptr().add(offset + 2) as *mut u16;
+            ptr::write_unaligned(checksum_ptr, checksum.to_be());
+            ptr::write_unaligned(reserved_ptr, reserved.to_be());
+        }
+        Ok(())
+    }
+
+    /// Sets the Key field.
+    ///
+    /// The Key field can only be set when the K flag is set. It contains a key
+    /// value that can be used to identify a particular GRE tunnel.
+    ///
+    /// Returns an error if the K flag is not set.
+    pub fn set_key(&mut self, key: u32) -> Result<(), GreWriteError> {
+        if !self.k_flag() { return Err(GreWriteError::FieldNotPresent); }
+        let mut offset = GRE_BASE_HDR_LEN;
+        if self.c_flag() { offset += GRE_CHECKSUM_HDR_LEN; }
+        unsafe {
+            let key_ptr = self.buffer.as_mut_ptr().add(offset) as *mut u32;
+            ptr::write_unaligned(key_ptr, key.to_be());
+        }
+        Ok(())
+    }
+
+    /// Sets the Sequence Number field.
+    ///
+    /// The Sequence Number field can only be set when the S flag is set. It contains
+    /// a sequence number that can be used to maintain packet order.
+    ///
+    /// Returns an error if the S flag is not set.
+    pub fn set_sequence_num(&mut self, seq: u32) -> Result<(), GreWriteError> {
+        if !self.s_flag() { return Err(GreWriteError::FieldNotPresent); }
+        let mut offset = GRE_BASE_HDR_LEN;
+        if self.c_flag() { offset += GRE_CHECKSUM_HDR_LEN; }
+        if self.k_flag() { offset += GRE_KEY_HDR_LEN; }
+        unsafe {
+            let seq_ptr = self.buffer.as_mut_ptr().add(offset) as *mut u32;
+            ptr::write_unaligned(seq_ptr, seq.to_be());
+        }
+        Ok(())
     }
 }
 
@@ -302,231 +256,142 @@ mod serde_impl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eth::EtherType;
-    use core::mem::size_of;
-
-    const HDR_MAX_LEN: usize = size_of::<GreHdr>();
-
-    unsafe fn gre_from_bytes(bytes: &[u8; HDR_MAX_LEN]) -> &GreHdr {
-        &*(bytes.as_ptr() as *const GreHdr)
-    }
-    unsafe fn gre_from_bytes_mut(bytes: &mut [u8; HDR_MAX_LEN]) -> &mut GreHdr {
-        &mut *(bytes.as_mut_ptr() as *mut GreHdr)
+    fn create_test_gre_packet() -> [u8; 16] {
+        [
+            0xB0, 0x01, 0x86, 0xDD, // Flags (C,K,S=1), Ver=1, Proto=IPv6
+            0xAA, 0xAA, 0xBB, 0xBB, // Checksum, Reserved1
+            0xDE, 0xAD, 0xBE, 0xEF, // Key
+            0x12, 0x34, 0x56, 0x78, // Sequence Number
+        ]
     }
 
     #[test]
-    fn test_get_checksum_present() {
-        let received_bytes: [u8; HDR_MAX_LEN] = [0x80, 0x00, 0,0,0,0,0,0,0,0,0,0,0,0,0,0];
-        let received_header = unsafe { gre_from_bytes(&received_bytes) };
-        assert!(received_header.checksum_present());
+    fn test_gre_header_creation() {
+        let mut buffer = create_test_gre_packet();
+        let packet = GreHdr::new(&mut buffer);
+        assert!(packet.is_ok(), "Failed to create GRE header");
     }
 
     #[test]
-    fn test_set_checksum_present() {
-        let mut gre_bytes = [0u8; HDR_MAX_LEN];
-        {
-            let gre_header = unsafe { gre_from_bytes_mut(&mut gre_bytes) };
-            gre_header.set_checksum_present(true);
-        }
-        assert_eq!(gre_bytes[0], 0x80);
+    fn test_gre_flags() {
+        let mut buffer = create_test_gre_packet();
+        let packet = GreHdr::new(&mut buffer).unwrap();
+
+        assert_eq!(packet.c_flag(), true, "C flag should be set");
+        assert_eq!(packet.k_flag(), true, "K flag should be set");
+        assert_eq!(packet.s_flag(), true, "S flag should be set");
     }
 
     #[test]
-    fn test_key_present() {
-        let mut gre_bytes = [0u8; HDR_MAX_LEN];
-        let gre_header = unsafe { gre_from_bytes_mut(&mut gre_bytes) };
-        assert!(!gre_header.key_present());
-        gre_header.set_key_present(true);
-        assert!(gre_header.key_present());
-        assert_eq!(gre_bytes[0], 0x20);
+    fn test_gre_version() {
+        let mut buffer = create_test_gre_packet();
+        let packet = GreHdr::new(&mut buffer).unwrap();
+
+        assert_eq!(packet.version(), 1, "Version should be 1");
     }
 
     #[test]
-    fn test_sequence_present() {
-        let mut gre_bytes = [0u8; HDR_MAX_LEN];
-        let gre_header = unsafe { gre_from_bytes_mut(&mut gre_bytes) };
-        assert!(!gre_header.sequence_present());
-        gre_header.set_sequence_present(true);
-        assert!(gre_header.sequence_present());
-        assert_eq!(gre_bytes[0], 0x10);
+    fn test_gre_protocol_type() {
+        let mut buffer = create_test_gre_packet();
+        let packet = GreHdr::new(&mut buffer).unwrap();
+
+        assert_eq!(packet.protocol_type(), 0x86DD, "Protocol type should be IPv6 (0x86DD)");
     }
 
     #[test]
-    fn test_get_version() {
-        let received_bytes: [u8; HDR_MAX_LEN] = [0x00, 0x07, 0,0,0,0,0,0,0,0,0,0,0,0,0,0];
-        let received_header = unsafe { gre_from_bytes(&received_bytes) };
-        assert_eq!(received_header.get_version(), 7);
+    fn test_gre_optional_fields_reading() {
+        let mut buffer = create_test_gre_packet();
+        let packet = GreHdr::new(&mut buffer).unwrap();
+
+        assert_eq!(packet.checksum_and_reserved(), Some((0xAAAA, 0xBBBB)), 
+                   "Checksum and reserved fields should be correctly read");
+        assert_eq!(packet.key(), Some(0xDEADBEEF), 
+                   "Key field should be correctly read");
+        assert_eq!(packet.sequence_num(), Some(0x12345678), 
+                   "Sequence number field should be correctly read");
     }
 
     #[test]
-    fn test_set_version() {
-        let mut gre_bytes = [0u8; HDR_MAX_LEN];
-        {
-            let gre_header = unsafe { gre_from_bytes_mut(&mut gre_bytes) };
-            gre_header.set_version(5);
-        }
-        assert_eq!(gre_bytes[1], 0x05);
+    fn test_gre_set_version() {
+        let mut buffer = create_test_gre_packet();
+        let mut packet = GreHdr::new(&mut buffer).unwrap();
+
+        packet.set_version(7);
+        assert_eq!(packet.version(), 7, "Version should be updated to 7");
+        assert_eq!(buffer[1], 0x07, "Version in buffer should be updated to 7");
     }
 
     #[test]
-    fn test_get_set_key() {
-        let mut gre_bytes = [0u8; HDR_MAX_LEN];
-        let key_val = [0xAA, 0xBB, 0xCC, 0xDD];
-        {
-            let gre_header = unsafe { gre_from_bytes_mut(&mut gre_bytes) };
-            gre_header.set_key(key_val);
-        }
-        let read_header = unsafe { gre_from_bytes(&gre_bytes) };
-        assert!(read_header.key_present());
-        assert_eq!(read_header.get_key(), Some(key_val));
+    fn test_gre_set_protocol_type() {
+        let mut buffer = create_test_gre_packet();
+        let mut packet = GreHdr::new(&mut buffer).unwrap();
+
+        packet.set_protocol_type(0x0800); // Change to IPv4
+        assert_eq!(packet.protocol_type(), 0x0800, "Protocol type should be updated to IPv4 (0x0800)");
+        assert_eq!(buffer[2..4], [0x08, 0x00], "Protocol type in buffer should be updated");
     }
 
     #[test]
-    fn test_get_set_sequence() {
-        let mut gre_bytes = [0u8; HDR_MAX_LEN];
-        let seq_val = [0x11, 0x22, 0x33, 0x44];
-        {
-            let gre_header = unsafe { gre_from_bytes_mut(&mut gre_bytes) };
-            gre_header.set_sequence_number(seq_val);
-        }
-        let read_header = unsafe { gre_from_bytes(&gre_bytes) };
-        assert!(read_header.sequence_present());
-        assert_eq!(read_header.get_sequence_number(), Some(seq_val));
+    fn test_gre_set_checksum_and_reserved() {
+        let mut buffer = create_test_gre_packet();
+        let mut packet = GreHdr::new(&mut buffer).unwrap();
+
+        let result = packet.set_checksum_and_reserved(0x1111, 0x2222);
+        assert_eq!(result, Ok(()), "Setting checksum and reserved should succeed");
+        assert_eq!(packet.checksum_and_reserved(), Some((0x1111, 0x2222)), 
+                   "Checksum and reserved fields should be updated");
+        assert_eq!(buffer[4..8], [0x11, 0x11, 0x22, 0x22], 
+                   "Checksum and reserved in buffer should be updated");
     }
 
     #[test]
-    fn test_updated_header_len() {
-        let mut gre_header = GreHdr {
-            flags_reserved0_ver: [0; 2],
-            protocol_type: EtherType::Ipv4,
-            data: GreDataUnion { payload_start: [0; 12] },
-        };
-        assert_eq!(gre_header.total_hdr_len(), 4);
+    fn test_gre_set_key() {
+        let mut buffer = create_test_gre_packet();
+        let mut packet = GreHdr::new(&mut buffer).unwrap();
 
-        gre_header.set_checksum_present(true);
-        assert_eq!(gre_header.total_hdr_len(), 8);
-
-        gre_header.set_key_present(true);
-        assert_eq!(gre_header.total_hdr_len(), 12);
-
-        gre_header.set_sequence_present(true);
-        assert_eq!(gre_header.total_hdr_len(), 16);
-
-        gre_header.set_checksum_present(false);
-        assert_eq!(gre_header.total_hdr_len(), 12);
+        let result = packet.set_key(0x11223344);
+        assert_eq!(result, Ok(()), "Setting key should succeed");
+        assert_eq!(packet.key(), Some(0x11223344), "Key field should be updated");
+        assert_eq!(buffer[8..12], [0x11, 0x22, 0x33, 0x44], "Key in buffer should be updated");
     }
 
     #[test]
-    #[cfg(feature = "serde")]
-    fn test_custom_serialize() {
-        use bincode::{config::standard, serde::encode_to_vec};
+    fn test_gre_set_sequence_num() {
+        let mut buffer = create_test_gre_packet();
+        let mut packet = GreHdr::new(&mut buffer).unwrap();
 
-        let mut gre_header = GreHdr {
-            flags_reserved0_ver: [0; 2],
-            protocol_type: EtherType::Ipv4,
-            data: GreDataUnion { payload_start: [0; 12] },
-        };
-
-        gre_header.set_checksum_present(true);
-        gre_header.set_key_present(true);
-        gre_header.set_sequence_present(true);
-        gre_header.set_version(0);
-
-        gre_header.set_checksum([0x12, 0x34]);
-        gre_header.set_key([0xAA, 0xBB, 0xCC, 0xDD]);
-        gre_header.set_sequence_number([0x11, 0x22, 0x33, 0x44]);
-
-        let options = standard().with_fixed_int_encoding().with_big_endian();
-        let serialized = encode_to_vec(&gre_header, options).unwrap();
-
-        assert_eq!(serialized.len(), gre_header.total_hdr_len());
-
-        assert_eq!(serialized[0], 0xB0);
-        assert_eq!(serialized[1], 0x00);
-        assert_eq!(serialized[2], 0x08);
-        assert_eq!(serialized[3], 0x00);
-        assert_eq!(serialized[4], 0x12);
-        assert_eq!(serialized[5], 0x34);
-        assert_eq!(serialized[8], 0xAA);
-        assert_eq!(serialized[9], 0xBB);
-        assert_eq!(serialized[10], 0xCC);
-        assert_eq!(serialized[11], 0xDD);
-        assert_eq!(serialized[12], 0x11);
-        assert_eq!(serialized[13], 0x22);
-        assert_eq!(serialized[14], 0x33);
-        assert_eq!(serialized[15], 0x44);
+        let result = packet.set_sequence_num(0xAABBCCDD);
+        assert_eq!(result, Ok(()), "Setting sequence number should succeed");
+        assert_eq!(packet.sequence_num(), Some(0xAABBCCDD), "Sequence number field should be updated");
+        assert_eq!(buffer[12..16], [0xAA, 0xBB, 0xCC, 0xDD], 
+                   "Sequence number in buffer should be updated");
     }
 
     #[test]
-    #[cfg(feature = "serde")]
-    fn test_custom_deserialize_valid() {
-        use bincode::{config::standard, serde::decode_from_slice};
+    fn test_gre_header_length() {
+        let mut buffer = create_test_gre_packet();
+        let packet = GreHdr::new(&mut buffer).unwrap();
 
-        let mut gre_bytes = [0u8; HDR_MAX_LEN];
-
-        // Set flags and protocol type
-        gre_bytes[0] = 0xB0;
-        gre_bytes[1] = 0x00;
-        gre_bytes[2] = 0x08;
-        gre_bytes[3] = 0x00;
-
-        // Checksum
-        gre_bytes[4] = 0x12;
-        gre_bytes[5] = 0x34;
-
-        // Key
-        gre_bytes[8] = 0xAA;
-        gre_bytes[9] = 0xBB;
-        gre_bytes[10] = 0xCC;
-        gre_bytes[11] = 0xDD;
-
-        // Sequence number
-        gre_bytes[12] = 0x11;
-        gre_bytes[13] = 0x22;
-        gre_bytes[14] = 0x33;
-        gre_bytes[15] = 0x44;
-
-        let options = standard().with_fixed_int_encoding().with_big_endian();
-        let (deserialized, bytes_consumed) = decode_from_slice::<GreHdr, _>(&gre_bytes, options).unwrap();
-
-        assert_eq!(bytes_consumed, 16);
-        assert!(deserialized.checksum_present());
-        assert!(deserialized.key_present());
-        assert!(deserialized.sequence_present());
-        assert_eq!(deserialized.get_version(), 0);
-        assert_eq!(deserialized.get_protocol_type(), EtherType::Ipv4);
-        assert_eq!(deserialized.get_checksum(), Some([0x12, 0x34]));
-        assert_eq!(deserialized.get_key(), Some([0xAA, 0xBB, 0xCC, 0xDD]));
-        assert_eq!(deserialized.get_sequence_number(), Some([0x11, 0x22, 0x33, 0x44]));
+        assert_eq!(packet.header_len(), 16, 
+                   "Header length should be 16 bytes with all flags set");
     }
 
     #[test]
-    #[cfg(feature = "serde")]
-    fn test_custom_deserialize_invalid() {
-        use bincode::{config::standard, error::DecodeError, serde::decode_from_slice};
+    fn test_gre_field_not_present_error() {
+        // Create a GRE packet with no flags set
+        let mut buffer = [0x00, 0x01, 0x86, 0xDD, 0x00, 0x00, 0x00, 0x00];
+        let mut packet = GreHdr::new(&mut buffer).unwrap();
 
-        let empty_bytes: [u8; 0] = [];
-        let options = standard().with_fixed_int_encoding().with_big_endian();
-        let result = decode_from_slice::<GreHdr, _>(&empty_bytes, options);
-        assert!(matches!(result, Err(DecodeError::Other(_))));
+        // Attempt to set fields that aren't present
+        let checksum_result = packet.set_checksum_and_reserved(0x1111, 0x2222);
+        let key_result = packet.set_key(0x11223344);
+        let seq_result = packet.set_sequence_num(0xAABBCCDD);
 
-        let short_bytes = [0x80, 0x00, 0x08];
-        let result = decode_from_slice::<GreHdr, _>(&short_bytes, options);
-        assert!(matches!(result, Err(DecodeError::Other(_))));
-
-        let incomplete_checksum = [0x80, 0x00, 0x08, 0x00, 0x12];
-        let result = decode_from_slice::<GreHdr, _>(&incomplete_checksum, options);
-        assert!(matches!(result, Err(DecodeError::Other(_))));
-
-        let incomplete_key = [0x20, 0x00, 0x08, 0x00, 0x12, 0x34, 0x00, 0x00, 0xAA];
-        let result = decode_from_slice::<GreHdr, _>(&incomplete_key, options);
-        assert!(matches!(result, Err(DecodeError::Other(_))));
-
-        let incomplete_seq = [
-            0x10, 0x00, 0x08, 0x00, 0x12, 0x34, 0x00, 0x00,
-            0xAA, 0xBB, 0xCC, 0xDD, 0x11
-        ];
-        let result = decode_from_slice::<GreHdr, _>(&incomplete_seq, options);
-        assert!(matches!(result, Err(DecodeError::Other(_))));
+        assert_eq!(checksum_result, Err(GreWriteError::FieldNotPresent), 
+                   "Setting checksum should fail when C flag is not set");
+        assert_eq!(key_result, Err(GreWriteError::FieldNotPresent), 
+                   "Setting key should fail when K flag is not set");
+        assert_eq!(seq_result, Err(GreWriteError::FieldNotPresent), 
+                   "Setting sequence number should fail when S flag is not set");
     }
 }
