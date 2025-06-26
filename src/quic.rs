@@ -135,15 +135,15 @@ macro_rules! parse_quic_hdr {
         (|| -> Result<$crate::quic::QuicHdr, ()> {
             use $crate::quic;
             use $crate::{read_var_buf_32, read_var_buf_from_len_byte_16};
-            let quic_fixed_hdr: quic::QuicFirstByteHdr = $ctx.load($off).map_err(|_| ())?;
+            let quic_first_byte: quic::QuicFirstByteHdr = $ctx.load($off).map_err(|_| ())?;
             $off += quic::QuicFirstByteHdr::LEN;
-            match quic_fixed_hdr.is_long_header() {
+            match quic_first_byte.is_long_header() {
                 true => {
                     let quic_fixed_long_hdr: quic::QuicFixedLongHdr =
                         $ctx.load($off).map_err(|_| ())?;
                     $off += quic::QuicFixedLongHdr::LEN;
                     let mut quic_long_hdr =
-                        quic::QuicLongHdr::new(quic_fixed_hdr, quic_fixed_long_hdr);
+                        quic::QuicLongHdr::new(quic_first_byte, quic_fixed_long_hdr);
                     read_var_buf_32!(
                         $ctx,
                         $off,
@@ -162,7 +162,7 @@ macro_rules! parse_quic_hdr {
                         quic::QUIC_MAX_CID_LEN
                     )
                     .map_err(|_| ())?;
-                    if quic_fixed_hdr.long_packet_type() == 0 {
+                    if quic_first_byte.long_packet_type() == 0 {
                         let token_len_byte: u8 = $ctx.load($off).map_err(|_| ())?;
                         $off += 1;
                         read_var_buf_from_len_byte_16!(
@@ -176,7 +176,7 @@ macro_rules! parse_quic_hdr {
                         let token_len_val = quic_long_hdr.token_len().map_err(|_| ())?;
                         $off += token_len_val;
                     }
-                    if quic_fixed_hdr.long_packet_type() < 3 {
+                    if quic_first_byte.long_packet_type() < 3 {
                         let len_byte: u8 = $ctx.load($off).map_err(|_| ())?;
                         $off += 1;
                         read_var_buf_from_len_byte_16!(
@@ -200,7 +200,7 @@ macro_rules! parse_quic_hdr {
                 }
                 false => {
                     let mut quic_short_hdr =
-                        quic::QuicShortHdr::new($short_dc_id_len, quic_fixed_hdr);
+                        quic::QuicShortHdr::new($short_dc_id_len, quic_first_byte);
                     read_var_buf_32!(
                         $ctx,
                         $off,
