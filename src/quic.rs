@@ -1,4 +1,5 @@
 use core::mem;
+use crate::{read_var_u32_from_slice, write_var_u32_to_slice};
 
 /// The maximum supported length for a QUIC Connection ID (CID), as per RFC 9000.
 pub const QUIC_MAX_CID_LEN: usize = 20;
@@ -33,6 +34,7 @@ const PN_LENGTH_BITS_MASK: u8 = 0x03;
 #[derive(Debug)]
 pub enum QuicError {
     InvalidQuicType,
+    InvalidQuicFieldLength(usize),
 }
 
 /// Parses a QUIC header from a network buffer within an eBPF context.
@@ -472,7 +474,8 @@ impl QuicLongHdr {
         if self.packet_type() == 3 {
             return Err(QuicError::InvalidQuicType);
         }
-        Ok(u32::from_be_bytes(self.pn))
+        read_var_u32_from_slice!(self.first_byte.packet_number_length_long(), self.pn)
+            .map_err(QuicError::InvalidQuicFieldLength)
     }
 
     /// Sets the Packet Number in the header.
@@ -488,8 +491,10 @@ impl QuicLongHdr {
         if self.packet_type() == 3 {
             return Err(QuicError::InvalidQuicType);
         }
-        self.pn = pn.to_be_bytes();
+        let len = write_var_u32_to_slice!(pn, &mut self.pn);
+        self.first_byte.set_packet_number_length_long(len);
         Ok(())
+
     }
 }
 
@@ -576,8 +581,9 @@ impl QuicShortHdr {
     /// # Returns
     /// The 32-bit packet number.
     #[inline]
-    pub fn pn(&self) -> u32 {
-        u32::from_be_bytes(self.pn)
+    pub fn pn(&self) -> Result<u32, QuicError> {
+        read_var_u32_from_slice!(self.first_byte.packet_number_length_long(), self.pn)
+            .map_err(QuicError::InvalidQuicFieldLength)
     }
 
     /// Sets the Packet Number in the header.
@@ -586,7 +592,8 @@ impl QuicShortHdr {
     /// * `pn`: The 32-bit packet number to set.
     #[inline]
     pub fn set_pn(&mut self, pn: u32) {
-        self.pn = pn.to_be_bytes();
+        let len = write_var_u32_to_slice!(pn, &mut self.pn);
+        self.set_packet_number_length(len);
     }
 
     /// Gets the Spin Bit, used for passive RTT measurement.
@@ -1080,7 +1087,7 @@ mod tests {
         hdr.set_dc_id(dc_id);
         assert_eq!(hdr.dc_id(), dc_id);
         hdr.set_pn(12345);
-        assert_eq!(hdr.pn(), 12345);
+        assert_eq!(hdr.pn().unwrap(), 12345);
         hdr.set_spin_bit(true);
         assert!(hdr.spin_bit());
         hdr.set_spin_bit(false);

@@ -80,3 +80,66 @@ macro_rules! read_var_buf_from_len_byte_16 {
         })()
     };
 }
+
+/// Reads a variable-length integer from a buffer and converts it to a u32.
+///
+/// This macro is designed to be eBPF-verifier-friendly by using a `match`
+/// statement to handle different lengths, avoiding loops or dynamic indexing
+/// that the verifier might reject. It assumes the buffer holds a big-endian integer.
+///
+/// # Arguments
+/// * `$len`: The length of the variable-length integer in bytes (1 to 4).
+/// * `$buf`: The buffer containing the integer bytes.
+///
+/// # Returns
+/// A `Result<u32, usize>` which is `Ok(u32)` on success, or
+/// `Err(usize)` with the invalid length on failure.
+#[macro_export]
+macro_rules! read_var_u32_from_slice {
+    ($len:expr, $buf:expr) => {
+        match $len {
+            1 => Ok(u32::from_be_bytes([0, 0, 0, $buf[0]])),
+            2 => Ok(u32::from_be_bytes([0, 0, $buf[0], $buf[1]])),
+            3 => Ok(u32::from_be_bytes([0, $buf[0], $buf[1], $buf[2]])),
+            4 => Ok(u32::from_be_bytes([$buf[0], $buf[1], $buf[2], $buf[3]])),
+            invalid_len => Err(invalid_len),
+        }
+    };
+}
+
+/// Writes a u32 value to a slice as a variable-length integer.
+///
+/// This macro determines the minimum number of bytes required to represent
+/// the given `u32` value and writes those bytes in big-endian order to the
+/// provided buffer. It is designed to be eBPF-verifier friendly.
+///
+/// # Arguments
+/// * `$val`: The `u32` value to write.
+/// * `$buf`: The destination buffer slice. The buffer must be at least 4 bytes long.
+///
+/// # Returns
+/// The number of bytes written to the buffer (`usize`).
+#[macro_export]
+macro_rules! write_var_u32_to_slice {
+    ($val:expr, $buf:expr) => {{
+        let val = $val;
+        let bytes = val.to_be_bytes();
+        let buf = $buf;
+        if val < 1 << 8 {
+            buf[0] = bytes[3];
+            1
+        } else if val < 1 << 16 {
+            buf[0] = bytes[2];
+            buf[1] = bytes[3];
+            2
+        } else if val < 1 << 24 {
+            buf[0] = bytes[1];
+            buf[1] = bytes[2];
+            buf[2] = bytes[3];
+            3
+        } else {
+            buf.copy_from_slice(&bytes);
+            4
+        }
+    }};
+}
