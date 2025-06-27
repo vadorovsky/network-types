@@ -1,5 +1,5 @@
-use core::mem;
 use crate::{read_var_u32_from_slice, write_var_u32_to_slice};
+use core::mem;
 
 /// The maximum supported length for a QUIC Connection ID (CID), as per RFC 9000.
 pub const QUIC_MAX_CID_LEN: usize = 20;
@@ -494,7 +494,6 @@ impl QuicLongHdr {
         let len = write_var_u32_to_slice!(pn, &mut self.pn);
         self.first_byte.set_packet_number_length_long(len);
         Ok(())
-
     }
 }
 
