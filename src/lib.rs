@@ -4,6 +4,7 @@
 pub mod arp;
 pub mod bitfield;
 pub mod eth;
+pub mod geneve;
 pub mod icmp;
 pub mod ip;
 pub mod llc;
@@ -16,5 +17,3 @@ pub mod tcp;
 pub mod udp;
 pub mod vlan;
 pub mod vxlan;
-pub mod llc;
-pub mod geneve;
