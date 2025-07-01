@@ -6,6 +6,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.9](https://github.com/vadorovsky/network-types/compare/v0.0.8...v0.0.9) - 2025-07-01
+
+### Added
+
+- MPLS header structure support ([#51](https://github.com/vadorovsky/network-types/pull/51))
+- Add Logical Link Control (LLC) header support ([#49](https://github.com/vadorovsky/network-types/pull/49))
+- icmp v4 and icmp v6 support ([#48](https://github.com/vadorovsky/network-types/pull/48))
+- implement getters/setters for Ipv4Hdr and Ipv6Hdr fields ([#47](https://github.com/vadorovsky/network-types/pull/47))
+- vlan tag
+
+### Fixed
+
+- avoid UB with unknown EtherType values and improve usability ([#44](https://github.com/vadorovsky/network-types/pull/44))
+
+### Other
+
+- Adds support for GENEVE ([#67](https://github.com/vadorovsky/network-types/pull/67))
+- Update vxlan.rs ([#58](https://github.com/vadorovsky/network-types/pull/58))
+- Use byte arrays instead of integers ([#56](https://github.com/vadorovsky/network-types/pull/56))
+- Add support for SCTP ([#54](https://github.com/vadorovsky/network-types/pull/54))
+- aligns UdpHdr fields and functions with other modules ([#52](https://github.com/vadorovsky/network-types/pull/52))
+- Update Ubuntu to latest
+- aligns VLAN related eth types to the linux naming convention
+- use EtherType instead of u16 for eth_type field
+
 ## [0.0.8](https://github.com/vadorovsky/network-types/compare/v0.0.7...v0.0.8) - 2025-04-07
 
 ### Added
