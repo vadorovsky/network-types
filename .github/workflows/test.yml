@@ -12,16 +12,60 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - beta
+          - nightly
+        target:
+          - aarch64-unknown-linux-gnu
+          - aarch64-unknown-linux-musl
+          - riscv64gc-unknown-linux-gnu
+          - x86_64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+    env:
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
+      RUST_BACKTRACE: full
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          override: true
-
-      - name: Test
-        env:
-          RUST_BACKTRACE: full
+      - name: Install cross-compilation tools
         run: |
-          cargo test --verbose
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu musl-tools
+
+      - name: Configure Cargo for cross-compilation
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml <<EOL
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
+
+          [target.aarch64-unknown-linux-musl]
+          linker = "aarch64-linux-gnu-gcc"
+
+          [target.riscv64gc-unknown-linux-gnu]
+          linker = "riscv64-linux-gnu-gcc"
+          EOL
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: rustfmt, clippy, rust-src
+          targets: ${{ matrix.target }}
+
+      - name: Check formatting
+        if: matrix.rust == 'stable'
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy -- --deny warnings -A clippy::useless_transmute -A clippy::too_many_arguments
+
+      - name: Build tests for cross-targets
+        if: contains(matrix.target, 'aarch64') || contains(matrix.target, 'riscv64')
+        run: cargo build --tests --verbose
+
+      - name: Run tests on native target
+        if: contains(matrix.target, 'x86_64')
+        run: cargo test --verbose
