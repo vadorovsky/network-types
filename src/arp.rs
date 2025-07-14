@@ -49,10 +49,8 @@ impl ArpHdr {
     /// Returns the hardware type field.
     #[inline]
     pub fn htype(&self) -> u16 {
-        unsafe {
-            *((self as *const Self as usize + offset_of!(Self, htype)) as *const u16)
-        }
-        .swap_bytes()
+        unsafe { *((self as *const Self as usize + offset_of!(Self, htype)) as *const u16) }
+            .swap_bytes()
     }
 
     /// Sets the hardware type field.
@@ -68,10 +66,8 @@ impl ArpHdr {
     /// Returns the protocol type field.
     #[inline]
     pub fn ptype(&self) -> u16 {
-        unsafe {
-            *((self as *const Self as usize + offset_of!(Self, ptype)) as *const u16)
-        }
-        .swap_bytes()
+        unsafe { *((self as *const Self as usize + offset_of!(Self, ptype)) as *const u16) }
+            .swap_bytes()
     }
 
     /// Sets the protocol type field.
@@ -119,10 +115,8 @@ impl ArpHdr {
     /// Returns the operation field.
     #[inline]
     pub fn oper(&self) -> u16 {
-        unsafe {
-            *((self as *const Self as usize + offset_of!(Self, oper)) as *const u16)
-        }
-        .swap_bytes()
+        unsafe { *((self as *const Self as usize + offset_of!(Self, oper)) as *const u16) }
+            .swap_bytes()
     }
 
     /// Sets the operation field.
