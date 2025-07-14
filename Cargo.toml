@@ -10,6 +10,7 @@ readme = "README.md"
 edition = "2021"
 
 [dependencies]
+memoffset = "0.9.1"
 serde = { version = "1", default-features = false, features = ["derive"], optional = true }
 
 [dev-dependencies]
