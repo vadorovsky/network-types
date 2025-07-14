@@ -1,12 +1,12 @@
-use core::mem;
-
+use core::mem::{self};
+use memoffset::offset_of;
 /// Represents an Address Resolution Protocol (ARP) header.
 ///
 /// The ARP header is typically found after the Ethernet header and is used to
 /// map a network protocol address (like an IPv4 address) to a hardware
 /// address (like a MAC address).
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct ArpHdr {
     /// Hardware type (HTYPE): Specifies the network link protocol type.
@@ -34,23 +34,6 @@ pub struct ArpHdr {
     /// Target protocol address (TPA): The protocol address of the intended
     /// receiver.
     pub tpa: [u8; 4],
-}
-
-impl Default for ArpHdr {
-    /// Creates a new `ArpHdr` with all fields initialized to zero.
-    fn default() -> Self {
-        ArpHdr {
-            htype: [0; 2],
-            ptype: [0; 2],
-            hlen: 0,
-            plen: 0,
-            oper: [0; 2],
-            sha: [0; 6],
-            spa: [0; 4],
-            tha: [0; 6],
-            tpa: [0; 4],
-        }
-    }
 }
 
 impl ArpHdr {
@@ -230,8 +213,7 @@ mod tests {
     #[test]
     fn test_htype() {
         let mut hdr = ArpHdr::default();
-        // Test with Ethernet (value 1)
-        let hw_type = 1u16.to_be_bytes();
+        let hw_type = 1u16;
         hdr.set_htype(hw_type);
         assert_eq!(hdr.htype(), hw_type);
     }
@@ -239,8 +221,7 @@ mod tests {
     #[test]
     fn test_ptype() {
         let mut hdr = ArpHdr::default();
-        // Test with IPv4 (value 0x0800)
-        let proto_type = 0x0800u16.to_be_bytes();
+        let proto_type = 0x0800u16;
         hdr.set_ptype(proto_type);
         assert_eq!(hdr.ptype(), proto_type);
     }
@@ -248,7 +229,6 @@ mod tests {
     #[test]
     fn test_hlen() {
         let mut hdr = ArpHdr::default();
-        // Test with MAC address length
         hdr.set_hlen(6);
         assert_eq!(hdr.hlen(), 6);
     }
@@ -256,7 +236,6 @@ mod tests {
     #[test]
     fn test_plen() {
         let mut hdr = ArpHdr::default();
-        // Test with IPv4 address length
         hdr.set_plen(4);
         assert_eq!(hdr.plen(), 4);
     }
@@ -264,12 +243,10 @@ mod tests {
     #[test]
     fn test_oper() {
         let mut hdr = ArpHdr::default();
-        // Test with ARP Request (1)
-        let op_request = 1u16.to_be_bytes();
+        let op_request = 1u16;
         hdr.set_oper(op_request);
         assert_eq!(hdr.oper(), op_request);
-        // Test with ARP Reply (2)
-        let op_reply = 2u16.to_be_bytes();
+        let op_reply = 2u16;
         hdr.set_oper(op_reply);
         assert_eq!(hdr.oper(), op_reply);
     }
