@@ -166,7 +166,10 @@ mod tests {
         hdr.set_ver(0b01);
         assert_eq!(hdr.ver(), 0b01);
         assert_eq!(hdr.opt_len(), 0x3F, "opt_len altered by set_ver");
-        assert_eq!(hdr.ver_opt_len, 0b01111111, "Interaction with opt_len failed");
+        assert_eq!(
+            hdr.ver_opt_len, 0b01111111,
+            "Interaction with opt_len failed"
+        );
     }
 
     #[test]
@@ -244,7 +247,11 @@ mod tests {
         let mut hdr = GeneveHdr::default();
         hdr.set_protocol_type(0xABCD);
         assert_eq!(hdr.protocol_type(), 0xABCD);
-        assert_eq!(hdr.protocol_type, [0xAB, 0xCD], "Raw bytes for protocol_type failed (Big Endian check)");
+        assert_eq!(
+            hdr.protocol_type,
+            [0xAB, 0xCD],
+            "Raw bytes for protocol_type failed (Big Endian check)"
+        );
     }
 
     #[test]
@@ -252,10 +259,18 @@ mod tests {
         let mut hdr = GeneveHdr::default();
         hdr.set_vni(0x00123456);
         assert_eq!(hdr.vni(), 0x00123456);
-        assert_eq!(hdr.vni, [0x12, 0x34, 0x56], "Raw bytes for VNI failed (Big Endian check)");
+        assert_eq!(
+            hdr.vni,
+            [0x12, 0x34, 0x56],
+            "Raw bytes for VNI failed (Big Endian check)"
+        );
 
         hdr.set_vni(0xFF123456); // Input with >24 bits
         assert_eq!(hdr.vni(), 0x00123456, "Masking for VNI failed");
-        assert_eq!(hdr.vni, [0x12, 0x34, 0x56], "Raw bytes after VNI masking failed");
+        assert_eq!(
+            hdr.vni,
+            [0x12, 0x34, 0x56],
+            "Raw bytes after VNI masking failed"
+        );
     }
 }

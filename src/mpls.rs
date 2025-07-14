@@ -15,7 +15,6 @@ pub struct Mpls {
     pub ttl: u8,
 }
 
-
 impl Mpls {
     pub const LEN: usize = mem::size_of::<Mpls>();
 
