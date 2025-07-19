@@ -1,4 +1,4 @@
-use crate::eth::EtherType;
+use crate::{eth::EtherType, getter_be};
 use core::mem;
 
 /// VLAN tag header structure
@@ -15,22 +15,28 @@ pub struct VlanHdr {
 impl VlanHdr {
     pub const LEN: usize = mem::size_of::<VlanHdr>();
 
+    #[inline]
+    fn tci(&self) -> u16 {
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, tci, u16) }
+    }
+
     /// Extract the Priority Code Point (PCP) from the VLAN header
     #[inline]
     pub fn pcp(&self) -> u8 {
-        (u16::from_be_bytes(self.tci) >> 13) as u8
+        (self.tci() >> 13) as u8
     }
 
     /// Extract the Drop Eligible Indicator (DEI) from the VLAN header
     #[inline]
     pub fn dei(&self) -> u8 {
-        ((u16::from_be_bytes(self.tci) >> 12) & 1) as u8
+        ((self.tci() >> 12) & 1) as u8
     }
 
     /// Extract the VLAN ID from the VLAN header
     #[inline]
     pub fn vid(&self) -> u16 {
-        u16::from_be_bytes(self.tci) & 0xFFF
+        self.tci() & 0xFFF
     }
 
     /// Get the EtherType value

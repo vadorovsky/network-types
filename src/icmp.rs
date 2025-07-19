@@ -1,6 +1,9 @@
 use core::mem;
 use core::net;
 
+use crate::getter_be;
+use crate::setter_be;
+
 /// An enum representing either an ICMPv4 or ICMPv6 header.
 ///
 /// - `V4` contains an IPv4 ICMP header as defined in RFC 792 (see `IcmpHdr`)
@@ -57,14 +60,16 @@ impl IcmpHdr {
     /// Returns the ICMP header checksum value in host byte order.
     /// This field is used to detect data corruption in the ICMP header and payload.
     pub fn checksum(&self) -> u16 {
-        u16::from_be_bytes(self.check)
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, check, u16) }
     }
 
     /// Sets the ICMP header checksum field to the given value.
     /// The checksum value should be calculated over the entire ICMP message (header and payload)
     /// according to RFC 792. The value will be stored in network byte order.
     pub fn set_checksum(&mut self, checksum: u16) {
-        self.check = checksum.to_be_bytes();
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, check, checksum) }
     }
 
     /// Returns the identification field from ICMP Echo/Timestamp/Info/Mask messages.
@@ -259,7 +264,7 @@ impl IcmpHdr {
     /// in undefined behavior.
     #[inline]
     pub unsafe fn echo_id_unchecked(&self) -> u16 {
-        u16::from_be_bytes(self.data.echo.id)
+        self.data.echo.id_unchecked()
     }
 
     /// Sets the identification field for ICMP Echo/Timestamp/Info/Mask messages.
@@ -271,7 +276,7 @@ impl IcmpHdr {
     /// in undefined behavior.
     #[inline]
     pub unsafe fn set_echo_id_unchecked(&mut self, id: u16) {
-        self.data.echo.id = id.to_be_bytes();
+        self.data.echo.set_id_unchecked(id);
     }
 
     /// Returns the sequence number from ICMP Echo/Timestamp/Info/Mask messages.
@@ -283,7 +288,7 @@ impl IcmpHdr {
     /// in undefined behavior.
     #[inline]
     pub unsafe fn echo_sequence_unchecked(&self) -> u16 {
-        u16::from_be_bytes(self.data.echo.sequence)
+        self.data.echo.sequence_unchecked()
     }
 
     /// Sets the sequence number for ICMP Echo/Timestamp/Info/Mask messages.
@@ -295,7 +300,7 @@ impl IcmpHdr {
     /// in undefined behavior.
     #[inline]
     pub unsafe fn set_echo_sequence_unchecked(&mut self, sequence: u16) {
-        self.data.echo.sequence = sequence.to_be_bytes();
+        self.data.echo.set_sequence_unchecked(sequence);
     }
 
     /// Returns the gateway internet address from an ICMP Redirect message (Type 5)
@@ -326,7 +331,7 @@ impl IcmpHdr {
     /// Accessing the dst_unreachable field with other ICMP types may result in undefined behavior.
     #[inline]
     pub unsafe fn next_hop_mtu_unchecked(&self) -> u16 {
-        u16::from_be_bytes(self.data.dst_unreachable.mtu)
+        self.data.dst_unreachable.mtu_unchecked()
     }
 
     /// Sets the Next-Hop MTU field for a Destination Unreachable message.
@@ -337,7 +342,7 @@ impl IcmpHdr {
     /// Accessing the dst_unreachable field with other ICMP types may result in undefined behavior.
     #[inline]
     pub unsafe fn set_next_hop_mtu_unchecked(&mut self, mtu: u16) {
-        self.data.dst_unreachable.mtu = mtu.to_be_bytes();
+        self.data.dst_unreachable.set_mtu_unchecked(mtu)
     }
 
     /// Returns the pointer to the errored byte from a Parameter Problem message (Type 12)
@@ -369,7 +374,7 @@ impl IcmpHdr {
     /// this function. Accessing the traceroute field with other ICMP types may result in undefined behavior.
     #[inline]
     pub unsafe fn traceroute_id_unchecked(&self) -> u16 {
-        u16::from_be_bytes(self.data.traceroute.id)
+        self.data.traceroute.id_unchecked()
     }
 
     /// Sets the ID Number field for a Traceroute message (Type 30).
@@ -380,7 +385,7 @@ impl IcmpHdr {
     /// this function. Accessing the traceroute field with other ICMP types may result in undefined behavior.
     #[inline]
     pub unsafe fn set_traceroute_id_unchecked(&mut self, id: u16) {
-        self.data.traceroute.id = id.to_be_bytes();
+        self.data.traceroute.set_id_unchecked(id);
     }
 
     /// Returns the Security Parameters Index (SPI) from a PHOTURIS message (Type 40).
@@ -391,7 +396,7 @@ impl IcmpHdr {
     /// Accessing the photuris field with other ICMP types may result in undefined behavior.
     #[inline]
     pub unsafe fn photuris_spi_unchecked(&self) -> u16 {
-        u16::from_be_bytes(self.data.photuris.reserved_spi)
+        self.data.photuris.reserved_spi_unchecked()
     }
 
     /// Sets the Security Parameters Index (SPI) for a PHOTURIS message (Type 40).
@@ -402,7 +407,7 @@ impl IcmpHdr {
     /// Accessing the photuris field with other ICMP types may result in undefined behavior.
     #[inline]
     pub unsafe fn set_photuris_spi_unchecked(&mut self, spi: u16) {
-        self.data.photuris.reserved_spi = spi.to_be_bytes();
+        self.data.photuris.set_reserved_spi_unckecked(spi);
     }
 
     /// Returns the pointer to the byte where an error was detected in a PHOTURIS message (Type 40).
@@ -413,7 +418,7 @@ impl IcmpHdr {
     /// Accessing the photuris field with other ICMP types may result in undefined behavior.
     #[inline]
     pub unsafe fn photuris_pointer_unchecked(&self) -> u16 {
-        u16::from_be_bytes(self.data.photuris.pointer)
+        self.data.photuris.pointer_unchecked()
     }
 
     /// Sets the pointer to the byte where an error was detected in a PHOTURIS message (Type 40).
@@ -424,7 +429,7 @@ impl IcmpHdr {
     /// Accessing the photuris field with other ICMP types may result in undefined behavior.
     #[inline]
     pub unsafe fn set_photuris_pointer_unchecked(&mut self, pointer: u16) {
-        self.data.photuris.pointer = pointer.to_be_bytes();
+        self.data.photuris.set_pointer_unchecked(pointer);
     }
 }
 
@@ -482,6 +487,56 @@ pub struct IcmpEcho {
     pub sequence: [u8; 2],
 }
 
+impl IcmpEcho {
+    /// Returns the identification field from ICMP Echo/Timestamp/Info/Mask messages.
+    /// Only valid for ICMP Types: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38.
+    ///
+    /// # Safety
+    /// Caller must ensure that the ICMP type is one of: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38
+    /// before calling this function. Accessing the echo fields with other ICMP types may result
+    /// in undefined behavior.
+    #[inline]
+    unsafe fn id_unchecked(&self) -> u16 {
+        getter_be!(self, id, u16)
+    }
+
+    /// Sets the identification field for ICMP Echo/Timestamp/Info/Mask messages.
+    /// Only valid for ICMP Types: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38.
+    ///
+    /// # Safety
+    /// Caller must ensure that the ICMP type is one of: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38
+    /// before calling this function. Accessing the echo fields with other ICMP types may result
+    /// in undefined behavior.
+    #[inline]
+    unsafe fn set_id_unchecked(&mut self, id: u16) {
+        setter_be!(self, id, id)
+    }
+
+    /// Returns the sequence number from ICMP Echo/Timestamp/Info/Mask messages.
+    /// Only valid for ICMP Types: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38.
+    ///
+    /// # Safety
+    /// Caller must ensure that the ICMP type is one of: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38
+    /// before calling this function. Accessing the echo fields with other ICMP types may result
+    /// in undefined behavior.
+    #[inline]
+    unsafe fn sequence_unchecked(&self) -> u16 {
+        getter_be!(self, sequence, u16)
+    }
+
+    /// Sets the sequence number for ICMP Echo/Timestamp/Info/Mask messages.
+    /// Only valid for ICMP Types: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38.
+    ///
+    /// # Safety
+    /// Caller must ensure that the ICMP type is one of: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38
+    /// before calling this function. Accessing the echo fields with other ICMP types may result
+    /// in undefined behavior.
+    #[inline]
+    unsafe fn set_sequence_unchecked(&mut self, sequence: u16) {
+        setter_be!(self, sequence, sequence)
+    }
+}
+
 /// For ICMP Type 3 "Destination Unreachable" Message (RFC 792) with support for PMTUD (RFC 1191)
 /// Contains 2 unused bytes followed by a Next-Hop MTU field indicating the maximum transmission unit
 /// of the next-hop network on which fragmentation is required.
@@ -491,6 +546,24 @@ pub struct IcmpEcho {
 pub struct IcmpDstUnreachable {
     pub _unused: [u8; 2],
     pub mtu: [u8; 2],
+}
+
+impl IcmpDstUnreachable {
+    /// Returns the Next-Hop MTU field from a Destination Unreachable message
+    /// in host byte order. Used for Path MTU Discovery (RFC 1191).
+    ///
+    /// # Safety
+    /// Caller must ensure ICMP type is 3 (Destination Unreachable) before calling this function.
+    /// Accessing the dst_unreachable field with other ICMP types may result in undefined behavior.
+    #[inline]
+    unsafe fn mtu_unchecked(&self) -> u16 {
+        getter_be!(self, mtu, u16)
+    }
+
+    #[inline]
+    unsafe fn set_mtu_unchecked(&mut self, mtu: u16) {
+        setter_be!(self, mtu, mtu)
+    }
 }
 
 /// For ICMP Type 12 "Parameter Problem" Message (RFC 792)
@@ -516,6 +589,28 @@ pub struct IcmpHdrPhoturis {
     pub pointer: [u8; 2],
 }
 
+impl IcmpHdrPhoturis {
+    #[inline]
+    unsafe fn reserved_spi_unchecked(&self) -> u16 {
+        getter_be!(self, reserved_spi, u16)
+    }
+
+    #[inline]
+    unsafe fn set_reserved_spi_unckecked(&mut self, spi: u16) {
+        setter_be!(self, reserved_spi, spi)
+    }
+
+    #[inline]
+    unsafe fn pointer_unchecked(&self) -> u16 {
+        getter_be!(self, pointer, u16)
+    }
+
+    #[inline]
+    unsafe fn set_pointer_unchecked(&mut self, pointer: u16) {
+        setter_be!(self, pointer, pointer)
+    }
+}
+
 /// For ICMP Type 30 "Traceroute" Message (RFC 1393)
 /// Contains a 16-bit ID Number field used by the source to match responses to outgoing requests
 /// followed by 2 unused bytes to make a total of 4 bytes. The ID Number helps match Reply messages
@@ -526,6 +621,31 @@ pub struct IcmpHdrPhoturis {
 pub struct IcmpTraceroute {
     pub id: [u8; 2],
     pub _unused: [u8; 2],
+}
+
+impl IcmpTraceroute {
+    /// Returns the ID Number field from a Traceroute message (Type 30).
+    /// The ID Number is used to match Reply messages (Type 31) to their corresponding Request messages.
+    /// This is only valid for ICMP Type 30 (Traceroute Request) and Type 31 (Traceroute Reply).
+    ///
+    /// # Safety
+    /// Caller must ensure ICMP type is 30 (Traceroute Request) or 31 (Traceroute Reply) before calling
+    /// this function. Accessing the traceroute field with other ICMP types may result in undefined behavior.
+    #[inline]
+    unsafe fn id_unchecked(&self) -> u16 {
+        getter_be!(self, id, u16)
+    }
+
+    /// Sets the ID Number field for a Traceroute message (Type 30).
+    /// The ID Number is used to match Reply messages (Type 31) to their corresponding Request messages.
+    ///
+    /// # Safety
+    /// Caller must ensure ICMP type is 30 (Traceroute Request) or 31 (Traceroute Reply) before calling
+    /// this function. Accessing the traceroute field with other ICMP types may result in undefined behavior.
+    #[inline]
+    unsafe fn set_id_unchecked(&mut self, id: u16) {
+        setter_be!(self, id, id)
+    }
 }
 
 /// Represents the variable length portion of a Timestamp Request/Reply message (RFC 792)
@@ -614,35 +734,41 @@ impl IcmpTimestampMsgPart {
 
     /// Returns the originate timestamp in host byte order (milliseconds since midnight UT)
     pub fn originate_timestamp(&self) -> u32 {
-        u32::from_be_bytes(self.originate_timestamp)
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, originate_timestamp, u32) }
     }
 
     /// Sets the originate timestamp field (milliseconds since midnight UT).
     /// The value will be stored in network byte order.
     pub fn set_originate_timestamp(&mut self, timestamp: u32) {
-        self.originate_timestamp = timestamp.to_be_bytes();
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, originate_timestamp, timestamp) }
     }
 
     /// Returns the receive timestamp in host byte order (milliseconds since midnight UT)
     pub fn receive_timestamp(&self) -> u32 {
-        u32::from_be_bytes(self.receive_timestamp)
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, receive_timestamp, u32) }
     }
 
     /// Sets the receive timestamp field (milliseconds since midnight UT).
     /// The value will be stored in network byte order.
     pub fn set_receive_timestamp(&mut self, timestamp: u32) {
-        self.receive_timestamp = timestamp.to_be_bytes();
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, receive_timestamp, timestamp) }
     }
 
     /// Returns the transmit timestamp in host byte order (milliseconds since midnight UT)
     pub fn transmit_timestamp(&self) -> u32 {
-        u32::from_be_bytes(self.transmit_timestamp)
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, transmit_timestamp, u32) }
     }
 
     /// Sets the transmit timestamp field (milliseconds since midnight UT).
     /// The value will be stored in network byte order.
     pub fn set_transmit_timestamp(&mut self, timestamp: u32) {
-        self.transmit_timestamp = timestamp.to_be_bytes();
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, transmit_timestamp, timestamp) }
     }
 }
 
@@ -718,49 +844,57 @@ impl IcmpTracerouteMsgPart {
     /// Returns the outbound hop count in host byte order.
     /// This indicates the maximum number of hops that can be traversed to the target.
     pub fn hops_out(&self) -> u16 {
-        u16::from_be_bytes(self.hops_out)
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, hops_out, u16) }
     }
 
     /// Sets the outbound hop count field. The value will be stored in network byte order.
     /// This should be set to the maximum number of hops that can be traversed to the target.
     pub fn set_hops_out(&mut self, hops: u16) {
-        self.hops_out = hops.to_be_bytes();
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, hops_out, hops) }
     }
 
     /// Returns the inbound hop count in host byte order.
     /// This indicates the maximum number of hops that can be traversed in the return path.
     pub fn hops_in(&self) -> u16 {
-        u16::from_be_bytes(self.hops_in)
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, hops_in, u16) }
     }
 
     /// Sets the inbound hop count field. The value will be stored in network byte order.
     /// This should be set to the maximum number of hops that can be traversed in the return path.
     pub fn set_hops_in(&mut self, hops: u16) {
-        self.hops_in = hops.to_be_bytes();
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, hops_in, hops) }
     }
 
     /// Returns the outbound bandwidth estimate in host byte order.
     /// This represents the minimum bandwidth along the forward path in bytes per second.
     pub fn bandwidth_out(&self) -> u32 {
-        u32::from_be_bytes(self.bandwidth_out)
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, bandwidth_out, u32) }
     }
 
     /// Sets the outbound bandwidth field. The value will be stored in network byte order.
     /// This should be set to the minimum bandwidth along the forward path in bytes per second.
     pub fn set_bandwidth_out(&mut self, bandwidth: u32) {
-        self.bandwidth_out = bandwidth.to_be_bytes();
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, bandwidth_out, bandwidth) }
     }
 
     /// Returns the outbound MTU in host byte order.
     /// This represents the minimum MTU along the forward path in bytes.
     pub fn mtu_out(&self) -> u32 {
-        u32::from_be_bytes(self.mtu_out)
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, mtu_out, u32) }
     }
 
     /// Sets the outbound MTU field. The value will be stored in network byte order.
     /// This should be set to the minimum MTU along the forward path in bytes.
     pub fn set_mtu_out(&mut self, mtu: u32) {
-        self.mtu_out = mtu.to_be_bytes();
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, mtu_out, mtu) }
     }
 }
 
@@ -810,6 +944,28 @@ pub union IcmpV6HdrUn {
     pub reserved: [u8; 4],
 }
 
+impl IcmpV6HdrUn {
+    #[inline]
+    unsafe fn mtu_unchecked(&self) -> u32 {
+        getter_be!(self, packet_too_big_mtu, u32)
+    }
+
+    #[inline]
+    unsafe fn set_mtu_unchecked(&mut self, mtu: u32) {
+        setter_be!(self, packet_too_big_mtu, mtu)
+    }
+
+    #[inline]
+    unsafe fn pointer_unchecked(&self) -> u32 {
+        getter_be!(self, param_problem_pointer, u32)
+    }
+
+    #[inline]
+    unsafe fn set_pointer_unchecked(&mut self, pointer: u32) {
+        setter_be!(self, param_problem_pointer, pointer)
+    }
+}
+
 impl core::fmt::Debug for IcmpV6HdrUn {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // Safe approach: just show the raw 4 bytes
@@ -837,14 +993,16 @@ impl IcmpV6Hdr {
     /// Returns the ICMPv6 header checksum value in host byte order.
     /// This field is used to detect corruption in the ICMPv6 header and payload.
     pub fn checksum(&self) -> u16 {
-        u16::from_be_bytes(self.check)
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, check, u16) }
     }
 
     /// Sets the ICMPv6 header checksum field to the given value.
     /// The checksum value should be calculated over the pseudo-header, ICMPv6 header, and payload
     /// according to RFC 4443. The value will be stored in network byte order.
     pub fn set_checksum(&mut self, checksum: u16) {
-        self.check = checksum.to_be_bytes();
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, check, checksum) }
     }
 
     /// Returns the identification field from ICMPv6 Echo Request/Reply messages.
@@ -1021,7 +1179,7 @@ impl IcmpV6Hdr {
     /// Accessing echo fields with other types may result in undefined behavior.
     #[inline]
     pub unsafe fn echo_id_unchecked(&self) -> u16 {
-        u16::from_be_bytes(self.data.echo.id)
+        self.data.echo.id_unchecked()
     }
 
     /// Sets the identification field for ICMPv6 Echo Request/Reply messages.
@@ -1032,7 +1190,7 @@ impl IcmpV6Hdr {
     /// Accessing echo fields with other types may result in undefined behavior.
     #[inline]
     pub unsafe fn set_echo_id_unchecked(&mut self, id: u16) {
-        self.data.echo.id = id.to_be_bytes();
+        self.data.echo.set_id_unchecked(id);
     }
 
     /// Returns the sequence number from ICMPv6 Echo Request/Reply messages.
@@ -1043,7 +1201,7 @@ impl IcmpV6Hdr {
     /// Accessing echo fields with other types may result in undefined behavior.
     #[inline]
     pub unsafe fn echo_sequence_unchecked(&self) -> u16 {
-        u16::from_be_bytes(self.data.echo.sequence)
+        self.data.echo.sequence_unchecked()
     }
 
     /// Sets the sequence number for ICMPv6 Echo Request/Reply messages.
@@ -1054,7 +1212,7 @@ impl IcmpV6Hdr {
     /// Accessing echo fields with other types may result in undefined behavior.
     #[inline]
     pub unsafe fn set_echo_sequence_unchecked(&mut self, sequence: u16) {
-        self.data.echo.sequence = sequence.to_be_bytes();
+        self.data.echo.set_sequence_unchecked(sequence);
     }
 
     /// Returns the MTU field from an ICMPv6 Packet Too Big message (Type 2).
@@ -1065,7 +1223,7 @@ impl IcmpV6Hdr {
     /// Accessing MTU field with other types may result in undefined behavior.
     #[inline]
     pub unsafe fn mtu_unchecked(&self) -> u32 {
-        u32::from_be_bytes(self.data.packet_too_big_mtu)
+        self.data.mtu_unchecked()
     }
 
     /// Sets the MTU field for an ICMPv6 Packet Too Big message (Type 2).
@@ -1076,7 +1234,7 @@ impl IcmpV6Hdr {
     /// Accessing MTU field with other types may result in undefined behavior.
     #[inline]
     pub unsafe fn set_mtu_unchecked(&mut self, mtu: u32) {
-        self.data.packet_too_big_mtu = mtu.to_be_bytes();
+        self.data.set_mtu_unchecked(mtu);
     }
 
     /// Returns the pointer field from an ICMPv6 Parameter Problem message (Type 4).
@@ -1087,7 +1245,7 @@ impl IcmpV6Hdr {
     /// Accessing pointer field with other types may result in undefined behavior.
     #[inline]
     pub unsafe fn pointer_unchecked(&self) -> u32 {
-        u32::from_be_bytes(self.data.param_problem_pointer)
+        self.data.pointer_unchecked()
     }
 
     /// Sets the pointer field for an ICMPv6 Parameter Problem message (Type 4).
@@ -1098,7 +1256,7 @@ impl IcmpV6Hdr {
     /// Accessing pointer field with other types may result in undefined behavior.
     #[inline]
     pub unsafe fn set_pointer_unchecked(&mut self, pointer: u32) {
-        self.data.param_problem_pointer = pointer.to_be_bytes();
+        self.data.set_pointer_unchecked(pointer);
     }
 
     /// Returns the 4-byte reserved field from an ICMPv6 Redirect message (Type 137).
