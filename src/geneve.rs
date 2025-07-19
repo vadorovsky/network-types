@@ -1,3 +1,5 @@
+use crate::{getter_be, setter_be};
+
 /// Represents a Geneve (Generic Network Virtualization Encapsulation) header, according to RFC 8926.
 /// Geneve is an encapsulation protocol designed for network virtualization.
 ///
@@ -92,7 +94,8 @@ impl GeneveHdr {
     /// This follows the Ethertype convention.
     #[inline]
     pub fn protocol_type(&self) -> u16 {
-        u16::from_be_bytes(self.protocol_type)
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, protocol_type, u16) }
     }
 
     /// Sets the Protocol Type (16 bits).
@@ -100,7 +103,8 @@ impl GeneveHdr {
     /// The value is stored in network byte order.
     #[inline]
     pub fn set_protocol_type(&mut self, protocol_type: u16) {
-        self.protocol_type = protocol_type.to_be_bytes();
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, protocol_type, protocol_type) }
     }
 
     /// Returns the Virtual Network Identifier (VNI) (24 bits).

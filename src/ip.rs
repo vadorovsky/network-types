@@ -1,5 +1,7 @@
 use core::mem;
 
+use crate::{getter_be, setter_be};
+
 /// IP headers, which are present after the Ethernet header.
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub enum IpHdr {
@@ -67,56 +69,69 @@ impl Ipv4Hdr {
     /// Returns the total length of the IP packet.
     #[inline]
     pub fn tot_len(&self) -> u16 {
-        u16::from_be_bytes(self.tot_len)
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, tot_len, u16) }
     }
 
     /// Sets the total length of the IP packet.
     #[inline]
     pub fn set_tot_len(&mut self, len: u16) {
-        self.tot_len = len.to_be_bytes();
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, tot_len, len) }
     }
 
     /// Returns the identification field.
     #[inline]
     pub fn id(&self) -> u16 {
-        u16::from_be_bytes(self.id)
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, id, u16) }
     }
 
     /// Sets the identification field.
     #[inline]
     pub fn set_id(&mut self, id: u16) {
-        self.id = id.to_be_bytes();
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, id, id) }
+    }
+
+    #[inline]
+    fn frags(&self) -> u16 {
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, frags, u16) }
     }
 
     /// Returns the fragmentation flags (3 bits).
     #[inline]
     pub fn frag_flags(&self) -> u8 {
-        (u16::from_be_bytes(self.frags) >> 13) as u8
+        (self.frags() >> 13) as u8
     }
 
     /// Returns the fragmentation offset (13 bits).
     #[inline]
     pub fn frag_offset(&self) -> u16 {
-        u16::from_be_bytes(self.frags) & 0x1FFF
+        self.frags() & 0x1FFF
     }
 
     /// Sets both the fragmentation flags and offset.
     #[inline]
     pub fn set_frags(&mut self, flags: u8, offset: u16) {
         let value = ((flags as u16 & 0x7) << 13) | (offset & 0x1FFF);
-        self.frags = value.to_be_bytes();
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, frags, value) }
     }
 
     /// Returns the checksum field.
     #[inline]
     pub fn checksum(&self) -> u16 {
-        u16::from_be_bytes(self.check)
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, check, u16) }
     }
 
     /// Sets the checksum field.
     #[inline]
     pub fn set_checksum(&mut self, checksum: u16) {
-        self.check = checksum.to_be_bytes();
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, check, checksum) }
     }
 
     /// Returns the source address field.
@@ -227,13 +242,15 @@ impl Ipv6Hdr {
     /// Returns the payload length.
     #[inline]
     pub fn payload_len(&self) -> u16 {
-        u16::from_be_bytes(self.payload_len)
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, payload_len, u16) }
     }
 
     /// Sets the payload length.
     #[inline]
     pub fn set_payload_len(&mut self, len: u16) {
-        self.payload_len = len.to_be_bytes();
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, payload_len, len) }
     }
 
     /// Returns the source address field.
