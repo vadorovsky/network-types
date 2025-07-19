@@ -1,5 +1,7 @@
 use core::mem;
 
+use crate::{getter_be, setter_be};
+
 /// UDP header, which is present after the IP header.
 ///
 /// This struct represents the User Datagram Protocol (UDP) header as defined in RFC 768.
@@ -49,7 +51,7 @@ impl UdpHdr {
     /// The source port as a u16 value.
     #[inline]
     pub fn src_port(&self) -> u16 {
-        u16::from_be_bytes(self.src)
+        getter_be!(self, src, u16)
     }
 
     /// Sets the source port number.
@@ -60,8 +62,8 @@ impl UdpHdr {
     /// # Parameters
     /// * `source` - The source port number to set.
     #[inline]
-    pub fn set_src_port(&mut self, source: u16) {
-        self.src = source.to_be_bytes();
+    pub fn set_src_port(&mut self, src: u16) {
+        setter_be!(self, src, src)
     }
 
     /// Returns the destination port number.
@@ -73,7 +75,7 @@ impl UdpHdr {
     /// The destination port as a u16 value.
     #[inline]
     pub fn dst_port(&self) -> u16 {
-        u16::from_be_bytes(self.dst)
+        getter_be!(self, dst, u16)
     }
 
     /// Sets the destination port number.
@@ -85,8 +87,8 @@ impl UdpHdr {
     /// * `dest` - The destination port number to set.
     /// ```
     #[inline]
-    pub fn set_dst_port(&mut self, dest: u16) {
-        self.dst = dest.to_be_bytes();
+    pub fn set_dst_port(&mut self, dst: u16) {
+        setter_be!(self, dst, dst)
     }
 
     /// Returns the length of the UDP datagram in bytes.
@@ -99,7 +101,7 @@ impl UdpHdr {
     /// The length as a u16 value.
     #[inline]
     pub fn len(&self) -> u16 {
-        u16::from_be_bytes(self.len)
+        getter_be!(self, len, u16)
     }
 
     /// Returns true if the UDP length field is zero.
@@ -122,7 +124,7 @@ impl UdpHdr {
     /// * `len` - The length to set in bytes.
     #[inline]
     pub fn set_len(&mut self, len: u16) {
-        self.len = len.to_be_bytes();
+        setter_be!(self, len, len)
     }
 
     /// Returns the UDP checksum.
@@ -135,7 +137,7 @@ impl UdpHdr {
     /// The checksum as a u16 value.
     #[inline]
     pub fn checksum(&self) -> u16 {
-        u16::from_be_bytes(self.check)
+        getter_be!(self, check, u16)
     }
 
     /// Sets the UDP checksum.
@@ -150,7 +152,7 @@ impl UdpHdr {
     /// * `check` - The checksum value to set.
     #[inline]
     pub fn set_checksum(&mut self, check: u16) {
-        self.check = check.to_be_bytes();
+        setter_be!(self, check, check)
     }
 }
 

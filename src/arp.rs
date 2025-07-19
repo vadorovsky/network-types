@@ -1,5 +1,7 @@
 use core::mem::{self};
-use memoffset::offset_of;
+
+use crate::{getter_be, setter_be};
+
 /// Represents an Address Resolution Protocol (ARP) header.
 ///
 /// The ARP header is typically found after the Ethernet header and is used to
@@ -49,8 +51,7 @@ impl ArpHdr {
     /// Returns the hardware type field.
     #[inline]
     pub fn htype(&self) -> u16 {
-        unsafe { *((self as *const Self as usize + offset_of!(Self, htype)) as *const u16) }
-            .swap_bytes()
+        getter_be!(self, htype, u16)
     }
 
     /// Sets the hardware type field.
@@ -60,14 +61,13 @@ impl ArpHdr {
     /// * `htype` - A 2-byte array representing the hardware type.
     #[inline]
     pub fn set_htype(&mut self, htype: u16) {
-        self.htype = unsafe { *((&htype.swap_bytes() as *const _ as usize) as *const _) };
+        setter_be!(self, htype, htype)
     }
 
     /// Returns the protocol type field.
     #[inline]
     pub fn ptype(&self) -> u16 {
-        unsafe { *((self as *const Self as usize + offset_of!(Self, ptype)) as *const u16) }
-            .swap_bytes()
+        getter_be!(self, ptype, u16)
     }
 
     /// Sets the protocol type field.
@@ -77,7 +77,7 @@ impl ArpHdr {
     /// * `ptype` - A 2-byte array representing the protocol type.
     #[inline]
     pub fn set_ptype(&mut self, ptype: u16) {
-        self.ptype = unsafe { *((&ptype.swap_bytes() as *const _ as usize) as *const _) };
+        setter_be!(self, ptype, ptype)
     }
 
     /// Returns the hardware address length field.
@@ -115,8 +115,7 @@ impl ArpHdr {
     /// Returns the operation field.
     #[inline]
     pub fn oper(&self) -> u16 {
-        unsafe { *((self as *const Self as usize + offset_of!(Self, oper)) as *const u16) }
-            .swap_bytes()
+        getter_be!(self, oper, u16)
     }
 
     /// Sets the operation field.
@@ -126,7 +125,7 @@ impl ArpHdr {
     /// * `oper` - A 2-byte array representing the operation (e.g., request or reply).
     #[inline]
     pub fn set_oper(&mut self, oper: u16) {
-        self.oper = unsafe { *((&oper.swap_bytes() as *const _ as usize) as *const _) };
+        setter_be!(self, oper, oper)
     }
 
     /// Returns the sender hardware address (SHA) field.
