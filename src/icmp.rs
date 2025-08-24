@@ -10,7 +10,7 @@ use crate::setter_be;
 /// - `V6` contains an IPv6 ICMP header as defined in RFC 4443 (see `IcmpV6Hdr`)
 ///
 /// This enum allows working with both ICMP protocol versions through a unified interface.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Icmp {
     V4(IcmpHdr),
     V6(IcmpV6Hdr),
@@ -790,7 +790,7 @@ impl IcmpTimestampMsgPart {
 ///     // Parse the ICMP header from start of payload
 ///     let icmp_start = ctx.data() + EthHdr::LEN + Ipv4Hdr::LEN;
 ///     let icmp: *const IcmpHdr = icmp_start as *const IcmpHdr;
-///     
+///
 ///     // Check if it's a Traceroute message (type 30)
 ///     // Ensure 'icmp' is within bounds before dereferencing.
 ///     // if (icmp as *const u8).add(IcmpHdr::LEN) > ctx.data_end() { return Err(()); }
