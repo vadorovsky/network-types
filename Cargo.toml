@@ -1,6 +1,6 @@
 [package]
 name = "network-types"
-version = "0.1.0"
+version = "0.1.1"
 description = "Rust structs representing network-related types in Linux."
 keywords = ["linux", "network", "osi", "packet", "headers"]
 license = "MIT"
