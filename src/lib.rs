@@ -23,11 +23,12 @@ pub mod vxlan;
 /// # Safety
 ///
 /// Caller needs to ensure that the provided field name is in bounds of the struct.
+/// Caller needs to ensure that the targeted field is aligned
 #[cfg(target_endian = "big")]
 #[macro_export]
 macro_rules! getter_be {
     ($self:expr, $field:ident, $ty:ty) => {
-        ::core::ptr::read_unaligned(
+        ::core::ptr::read(
             (($self as *const Self as usize) + ::memoffset::offset_of!(Self, $field)) as *const $ty,
         )
     };
@@ -35,12 +36,29 @@ macro_rules! getter_be {
 #[cfg(target_endian = "little")]
 #[macro_export]
 macro_rules! getter_be {
-    ($self:expr, $field:ident, $ty:ty) => {
-        ::core::ptr::read_unaligned(
+    ($self:expr, $field:ident, $ty:ty) => {{
+        #[cfg(test)]
+        if ((($self as *const Self as usize) + ::memoffset::offset_of!(Self, $field))
+            % ::core::mem::align_of::<$ty>()
+            != 0)
+        {
+            panic!(
+                "getter_be called on unaligned field {} ptr 0x{:x} align {} base_ptr 0x{:x} offset {} modulo {}",
+                stringify!($field),
+                ($self as *const Self as usize) + ::memoffset::offset_of!(Self, $field),
+                ::core::mem::align_of::<$ty>(),
+		$self as *const Self as usize,
+                ::memoffset::offset_of!(Self, $field),
+                (($self as *const Self as usize) + ::memoffset::offset_of!(Self, $field))
+                    % ::core::mem::align_of::<$ty>(),
+            );
+        }
+
+        ::core::ptr::read(
             (($self as *const Self as usize) + ::memoffset::offset_of!(Self, $field)) as *const $ty,
         )
         .swap_bytes()
-    };
+    }};
 }
 
 /// Sets the value of the given big-endian field using pointer arithmetic, raw
@@ -65,4 +83,34 @@ macro_rules! setter_be {
         // SAFETY: Pointer arithmetics in bounds of the given struct.
         $self.$field = *((&$val.swap_bytes() as *const _ as usize) as *const _)
     };
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[repr(C, packed)]
+    #[derive(Default)]
+    struct HdrWithUnalignedFields {
+        a: u8,  // Aligned
+        b: u16, // Non-alligned
+    }
+
+    impl HdrWithUnalignedFields {
+        fn b(&self) -> u16 {
+            unsafe { getter_be!(self, b, u16) }
+        }
+
+        fn set_b(&mut self, b: u16) {
+            unsafe { setter_be!(self, b, b) }
+        }
+    }
+
+    #[test]
+    fn test_unaligned_read() {
+        let mut hdr = HdrWithUnalignedFields::default();
+        let b_val = 1657;
+        hdr.set_b(b_val);
+        assert_eq!(hdr.b(), b_val) // Should panic
+    }
 }
