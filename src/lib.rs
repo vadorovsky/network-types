@@ -6,6 +6,7 @@ pub mod bitfield;
 pub mod eth;
 pub mod geneve;
 pub mod icmp;
+pub mod igmp;
 pub mod ip;
 pub mod llc;
 pub mod mac;
