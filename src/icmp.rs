@@ -44,7 +44,7 @@ pub enum IcmpError {
 ///
 /// The `data` field contains type-specific data such as echo identifiers/sequence numbers,
 /// redirect gateway addresses, or pointers to errors in received packets.
-#[repr(C, packed)]
+#[repr(C, align(4))]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct IcmpHdr {
@@ -442,7 +442,7 @@ impl IcmpHdr {
 /// - `traceroute`: Used for Traceroute messages (Type 30) to hold ID number
 /// - `photuris`: Used for PHOTURIS security messages (Type 40) to hold SPI and error pointer
 /// - `reserved`: Generic 4-byte field for types not covered by other variants
-#[repr(C, packed)]
+#[repr(C, align(4))]
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub union IcmpHdrUn {
@@ -917,7 +917,7 @@ impl IcmpTracerouteMsgPart {
 ///
 /// The `data` field contains type-specific data such as echo identifiers/sequence numbers,
 /// MTU values, or pointers to errors in received packets.
-#[repr(C, packed)]
+#[repr(C, align(4))]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct IcmpV6Hdr {
