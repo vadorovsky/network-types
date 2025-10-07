@@ -10,7 +10,7 @@ pub enum IpHdr {
 }
 
 /// IPv4 header, which is present after the Ethernet header.
-#[repr(C)]
+#[repr(C, align(4))]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Ipv4Hdr {
@@ -160,7 +160,7 @@ impl Ipv4Hdr {
 }
 
 /// IPv6 header, which is present after the Ethernet header.
-#[repr(C)]
+#[repr(C, align(4))]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Ipv6Hdr {
