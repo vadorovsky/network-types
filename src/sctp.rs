@@ -1,6 +1,6 @@
 use core::mem;
 
-#[repr(C)]
+#[repr(C, align(4))]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SctpHdr {
