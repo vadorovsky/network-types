@@ -24,7 +24,7 @@ use crate::{getter_be, setter_be};
 /// udp_header.set_len(28); // 8 bytes header + 20 bytes payload
 /// udp_header.set_checksum(0); // Checksum calculation would be done separately
 /// ```
-#[repr(C)]
+#[repr(C, align(4))]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct UdpHdr {

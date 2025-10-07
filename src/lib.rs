@@ -24,11 +24,12 @@ pub mod vxlan;
 /// # Safety
 ///
 /// Caller needs to ensure that the provided field name is in bounds of the struct.
+/// Caller needs to ensure that the targeted field is aligned
 #[cfg(target_endian = "big")]
 #[macro_export]
 macro_rules! getter_be {
     ($self:expr, $field:ident, $ty:ty) => {
-        ::core::ptr::read_unaligned(
+        ::core::ptr::read(
             (($self as *const Self as usize) + ::memoffset::offset_of!(Self, $field)) as *const $ty,
         )
     };
@@ -37,7 +38,7 @@ macro_rules! getter_be {
 #[macro_export]
 macro_rules! getter_be {
     ($self:expr, $field:ident, $ty:ty) => {
-        ::core::ptr::read_unaligned(
+        ::core::ptr::read(
             (($self as *const Self as usize) + ::memoffset::offset_of!(Self, $field)) as *const $ty,
         )
         .swap_bytes()

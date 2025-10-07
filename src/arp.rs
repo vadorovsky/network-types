@@ -7,7 +7,7 @@ use crate::{getter_be, setter_be};
 /// The ARP header is typically found after the Ethernet header and is used to
 /// map a network protocol address (like an IPv4 address) to a hardware
 /// address (like a MAC address).
-#[repr(C)]
+#[repr(C, align(4))]
 #[derive(Debug, Copy, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct ArpHdr {
