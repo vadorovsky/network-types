@@ -247,9 +247,8 @@ mod tests {
         assert_eq!(llc.control_byte0(), 0x01);
         assert_eq!(llc.control_byte1(), Some(0x07));
 
-        llc.ctrl[0] = 0x0D; // Example: 00001001 -> is 0x09
-                            //  LSBs 01 -> 00001101 is 0x0D
-        llc.ctrl[0] = 0x09; // (000010_01)
+        llc.ctrl[0] = 0x0D; // LSBs 01 -> 00001101 is 0x0D
+        llc.ctrl[0] = 0x09; // Example: 00001001 -> is 0x09
         llc.ctrl[1] = 0x00;
         assert_eq!(llc.frame_type(), LlcFrameType::S);
         assert_eq!(llc.control_byte0(), 0x09);

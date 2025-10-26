@@ -11,7 +11,7 @@ with [Aya](https://aya-rs.dev/).
 An example of an [XDP program](https://aya-rs.dev/book/start/) logging
 information about addresses and ports for incoming packets:
 
-```rust
+```no_run,rust,standalone_crate
 use core::mem;
 
 use aya_ebpf::{bindings::xdp_action, macros::xdp, programs::XdpContext};

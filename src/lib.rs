@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
+#![expect(unsafe_op_in_unsafe_fn)]
 
 pub mod arp;
 pub mod bitfield;

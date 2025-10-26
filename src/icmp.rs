@@ -654,7 +654,7 @@ impl IcmpTraceroute {
 /// Timestamps are milliseconds since midnight UT and are stored in network byte order.
 ///
 /// # Example
-/// ```
+/// ```no_run,rust,standalone_crate
 /// use core::mem;
 /// use aya_ebpf::programs::TcContext;
 /// use network_types::eth::EthHdr;
@@ -779,7 +779,7 @@ impl IcmpTimestampMsgPart {
 /// All fields are stored in network byte order.
 ///
 /// # Example
-/// ```
+/// ```no_run,rust,standalone_crate
 /// use core::mem;
 /// use aya_ebpf::programs::TcContext;
 /// use network_types::eth::EthHdr;
