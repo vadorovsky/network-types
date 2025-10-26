@@ -64,8 +64,8 @@ jobs:
 
       - name: Build tests for cross-targets
         if: contains(matrix.target, 'aarch64') || contains(matrix.target, 'riscv64')
-        run: cargo build --tests --verbose
+        run: cargo build --all-targets
 
       - name: Run tests on native target
         if: contains(matrix.target, 'x86_64')
-        run: cargo test --verbose
+        run: cargo test
