@@ -26,30 +26,13 @@ jobs:
           - x86_64-unknown-linux-gnu
           - x86_64-unknown-linux-musl
     env:
-      CARGO_BUILD_TARGET: ${{ matrix.target }}
       RUST_BACKTRACE: full
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Install cross-compilation tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu musl-tools
-
-      - name: Configure Cargo for cross-compilation
-        run: |
-          mkdir -p .cargo
-          cat > .cargo/config.toml <<EOL
-          [target.aarch64-unknown-linux-gnu]
-          linker = "aarch64-linux-gnu-gcc"
-
-          [target.aarch64-unknown-linux-musl]
-          linker = "aarch64-linux-gnu-gcc"
-
-          [target.riscv64gc-unknown-linux-gnu]
-          linker = "riscv64-linux-gnu-gcc"
-          EOL
-
+      - uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: ${{ matrix.target }}
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
@@ -61,12 +44,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy -- --deny warnings -A clippy::useless_transmute -A clippy::too_many_arguments
+        run: cargo clippy --all-targets -- --deny warnings -A clippy::useless_transmute -A clippy::too_many_arguments
 
-      - name: Build tests for cross-targets
-        if: contains(matrix.target, 'aarch64') || contains(matrix.target, 'riscv64')
-        run: cargo build --all-targets
-
-      - name: Run tests on native target
-        if: contains(matrix.target, 'x86_64')
-        run: cargo test
+      - run: cargo build --all-targets
+      - run: cargo test

@@ -155,7 +155,7 @@ mod tests {
         llc.set_dsap(0x42, false); // Address 0x42 (66), Individual
         assert_eq!(llc.dsap_addr(), 0x42);
         assert!(!llc.dsap_is_group_addr());
-        assert_eq!(llc.dsap, (0x42 << 1) | 0x00); // 0x84
+        assert_eq!(llc.dsap, 0x42 << 1); // 0x84
 
         // Test group address
         llc.set_dsap(0x7F, true); // Max 7-bit address, Group
@@ -167,7 +167,7 @@ mod tests {
         llc.set_dsap(0xFF, false); // Address 0xFF (should become 0x7F), Individual
         assert_eq!(llc.dsap_addr(), 0x7F);
         assert!(!llc.dsap_is_group_addr());
-        assert_eq!(llc.dsap, (0x7F << 1) | 0x00); // 0xFE
+        assert_eq!(llc.dsap, 0x7F << 1); // 0xFE
     }
 
     #[test]
@@ -178,7 +178,7 @@ mod tests {
         llc.set_ssap(0x3A, false); // Address 0x3A (58), Command
         assert_eq!(llc.ssap_address(), 0x3A);
         assert!(!llc.ssap_is_response());
-        assert_eq!(llc.ssap, (0x3A << 1) | 0x00); // 0x74
+        assert_eq!(llc.ssap, 0x3A << 1); // 0x74
 
         // Test response PDU
         llc.set_ssap(0x01, true); // Address 0x01, Response
