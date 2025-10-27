@@ -53,7 +53,7 @@ jobs:
 
       - name: Clippy
         if: matrix.rust == 'stable'
-        run: cargo clippy --all-targets -- --deny warnings -A clippy::useless_transmute -A clippy::too_many_arguments
+        run: cargo clippy --all-targets -- --deny warnings
 
       - run: cargo build --all-targets
       - run: cargo miri test --all-targets
