@@ -2,7 +2,7 @@ use crate::bitfield::BitfieldUnit;
 
 #[repr(C, packed)]
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MacHdr {
     _bitfield_frame_ctl: BitfieldUnit<[u8; 2]>,
     duration_id: [u8; 2],
@@ -15,7 +15,7 @@ pub struct MacHdr {
 }
 
 impl MacHdr {
-    pub const LEN: usize = ::core::mem::size_of::<MacHdr>();
+    pub const LEN: usize = core::mem::size_of::<MacHdr>();
 
     #[inline]
     pub fn protocol_version(&self) -> u16 {

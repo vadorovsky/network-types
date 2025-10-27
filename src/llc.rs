@@ -3,7 +3,7 @@ use core::mem;
 /// Represents Logical Link Control according to ISO/IEC 8802-2 Definition
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LlcHdr {
     /// Destination SAP address
     pub dsap: u8,

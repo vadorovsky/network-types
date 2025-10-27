@@ -4,7 +4,7 @@ use core::mem;
 /// VLAN tag header structure
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct VlanHdr {
     /// First 2 bytes containing PCP (3 bits), DEI (1 bit), and VLAN ID (12 bits)
     pub tci: [u8; 2],

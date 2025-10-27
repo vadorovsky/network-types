@@ -46,7 +46,7 @@ pub enum IcmpError {
 /// redirect gateway addresses, or pointers to errors in received packets.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpHdr {
     pub type_: u8,
     pub code: u8,
@@ -444,7 +444,7 @@ impl IcmpHdr {
 /// - `reserved`: Generic 4-byte field for types not covered by other variants
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub union IcmpHdrUn {
     pub echo: IcmpEcho,
     pub redirect: [u8; 4],
@@ -481,7 +481,7 @@ impl core::fmt::Debug for IcmpHdrUn {
 /// - 38: Domain Name Reply (deprecated)
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpEcho {
     pub id: [u8; 2],
     pub sequence: [u8; 2],
@@ -542,7 +542,7 @@ impl IcmpEcho {
 /// of the next-hop network on which fragmentation is required.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpDstUnreachable {
     pub _unused: [u8; 2],
     pub mtu: [u8; 2],
@@ -571,7 +571,7 @@ impl IcmpDstUnreachable {
 /// and 3 bytes of unused padding to make the field a total of 4 bytes.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpParamProblem {
     pub pointer: u8,
     pub _unused: [u8; 3], // To make up 4 bytes
@@ -583,7 +583,7 @@ pub struct IcmpParamProblem {
 /// field indicating where in the message the error was detected.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpHdrPhoturis {
     pub reserved_spi: [u8; 2],
     pub pointer: [u8; 2],
@@ -617,7 +617,7 @@ impl IcmpHdrPhoturis {
 /// (type 31) to their corresponding Requests.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpTraceroute {
     pub id: [u8; 2],
     pub _unused: [u8; 2],
@@ -722,7 +722,7 @@ impl IcmpTraceroute {
 /// ```
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpTimestampMsgPart {
     pub originate_timestamp: [u8; 4],
     pub receive_timestamp: [u8; 4],
@@ -830,7 +830,7 @@ impl IcmpTimestampMsgPart {
 /// ```
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpTracerouteMsgPart {
     pub hops_out: [u8; 2],
     pub hops_in: [u8; 2],
@@ -919,7 +919,7 @@ impl IcmpTracerouteMsgPart {
 /// MTU values, or pointers to errors in received packets.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpV6Hdr {
     pub type_: u8,
     pub code: u8,
@@ -935,7 +935,7 @@ pub struct IcmpV6Hdr {
 /// - `reserved`: Generic 4-byte field for unused/reserved data in other message types
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub union IcmpV6HdrUn {
     pub echo: IcmpEcho,
     pub packet_too_big_mtu: [u8; 4],
@@ -980,7 +980,7 @@ impl core::fmt::Debug for IcmpV6HdrUn {
 
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpV6Redirect {
     reserved: [u8; 4],
     target_address: [u8; 16],

@@ -26,7 +26,7 @@ use crate::{getter_be, setter_be};
 /// ```
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UdpHdr {
     /// Source port in network byte order (big-endian)
     pub src: [u8; 2],

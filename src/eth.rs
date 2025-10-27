@@ -4,7 +4,7 @@ use core::mem;
 /// This structure represents the standard IEEE 802.3 Ethernet header format.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EthHdr {
     /// Destination MAC address.
     pub dst_addr: [u8; 6],
@@ -50,7 +50,7 @@ impl EthHdr {
 /// These values represent the standard IEEE assigned protocol numbers
 #[repr(u16)]
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum EtherType {
     Loop = 0x0060_u16.to_be(),
     Ipv4 = 0x0800_u16.to_be(),

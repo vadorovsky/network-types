@@ -9,7 +9,7 @@ use crate::{getter_be, setter_be};
 /// address (like a MAC address).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ArpHdr {
     /// Hardware type (HTYPE): Specifies the network link protocol type.
     /// E.g., Ethernet is 1.

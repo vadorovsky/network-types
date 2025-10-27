@@ -6,7 +6,7 @@ use core::mem;
 /// 20 bits for Label - 3 for TC - 1 for S - 8 for TTL
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Mpls {
     /// The first 3 bytes of the MPLS header containing Label (20 bits), Traffic Class (3 bits),
     /// and Bottom of Stack (1 bit) fields in network byte order

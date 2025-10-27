@@ -4,7 +4,7 @@ use crate::{getter_be, setter_be};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IGMPv2Hdr {
     /// Message type
     pub message_type: u8,

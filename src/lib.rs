@@ -29,14 +29,14 @@ pub mod vxlan;
 #[macro_export]
 macro_rules! getter_be {
     ($self:expr, $field:ident, $ty:ty) => {
-        ::core::ptr::read_unaligned(::core::ptr::addr_of!($self.$field).cast::<$ty>())
+        core::ptr::read_unaligned(core::ptr::addr_of!($self.$field).cast::<$ty>())
     };
 }
 #[cfg(target_endian = "little")]
 #[macro_export]
 macro_rules! getter_be {
     ($self:expr, $field:ident, $ty:ty) => {
-        ::core::ptr::read_unaligned(::core::ptr::addr_of!($self.$field).cast::<$ty>()).swap_bytes()
+        core::ptr::read_unaligned(core::ptr::addr_of!($self.$field).cast::<$ty>()).swap_bytes()
     };
 }
 
