@@ -41,7 +41,7 @@ macro_rules! getter_be {
 }
 
 /// Sets the value of the given big-endian field using pointer arithmetic, raw
-/// pointer conversion and, if the target is litte-endian, the `swap_bytes`
+/// pointer conversion and, if the target is little-endian, the `swap_bytes`
 /// method. That performs better than `to_be_bytes`.
 ///
 /// # Safety
@@ -52,7 +52,7 @@ macro_rules! getter_be {
 macro_rules! setter_be {
     ($self:expr, $field:ident, $val:expr) => {
         // SAFETY: Pointer arithmetics in bounds of the given struct.
-        $self.$field = *((&$val as *const _ as usize) as *const _);
+        $self.$field = *core::ptr::from_ref(&$val).cast()
     };
 }
 #[cfg(target_endian = "little")]
@@ -60,6 +60,6 @@ macro_rules! setter_be {
 macro_rules! setter_be {
     ($self:expr, $field:ident, $val:expr) => {
         // SAFETY: Pointer arithmetics in bounds of the given struct.
-        $self.$field = *((&$val.swap_bytes() as *const _ as usize) as *const _)
+        $self.$field = *core::ptr::from_ref(&$val.swap_bytes()).cast()
     };
 }
