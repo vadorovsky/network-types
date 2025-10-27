@@ -9,10 +9,15 @@ repository = "https://github.com/vadorovsky/network-types"
 readme = "README.md"
 edition = "2024"
 
+[features]
+default = ["serde"]
+
 [dependencies]
 serde = { version = "1", default-features = false, features = ["derive"], optional = true }
 
 [dev-dependencies]
 aya-ebpf = { git = "https://github.com/aya-rs/aya", branch = "main" }
 aya-log-ebpf = { git = "https://github.com/aya-rs/aya", branch = "main" }
-bincode = { version = "2.0.0-rc.3", default-features = false, features = ["serde","alloc"] }
+bincode = { version = "2.0.1", default-features = false, features = ["serde","alloc"] }
+proptest = { version = "1.9.0", default-features = false, features = ["std"] }
+serde_cbor = { version = "0.11" }

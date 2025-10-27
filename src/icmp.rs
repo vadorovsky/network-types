@@ -444,7 +444,6 @@ impl IcmpHdr {
 /// - `reserved`: Generic 4-byte field for types not covered by other variants
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub union IcmpDataUn {
     pub echo: IcmpEcho,
     pub redirect: [u8; 4],
@@ -932,7 +931,6 @@ pub struct IcmpV6Hdr {
 ///   including the reserved field of Redirect messages (Type 137)
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub union IcmpV6DataUn {
     pub echo: IcmpEcho,
     pub packet_too_big_mtu: [u8; 4],
@@ -1276,6 +1274,52 @@ impl IcmpV6Hdr {
     #[inline]
     pub unsafe fn set_redirect_reserved_unchecked(&mut self, reserved: [u8; 4]) {
         self.data.reserved = reserved;
+    }
+}
+
+#[cfg(feature = "serde")]
+mod serde_impl {
+    use super::{IcmpDataUn, IcmpV6DataUn};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    impl Serialize for IcmpDataUn {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            let bytes = unsafe { self.reserved };
+            <[u8; 4]>::serialize(&bytes, serializer)
+        }
+    }
+
+    impl<'de> Deserialize<'de> for IcmpDataUn {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            let bytes = <[u8; 4]>::deserialize(deserializer)?;
+            Ok(IcmpDataUn { reserved: bytes })
+        }
+    }
+
+    impl Serialize for IcmpV6DataUn {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            let bytes = unsafe { self.reserved };
+            <[u8; 4]>::serialize(&bytes, serializer)
+        }
+    }
+
+    impl<'de> Deserialize<'de> for IcmpV6DataUn {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            let bytes = <[u8; 4]>::deserialize(deserializer)?;
+            Ok(IcmpV6DataUn { reserved: bytes })
+        }
     }
 }
 
@@ -2003,6 +2047,7 @@ mod tests {
     #[test]
     fn test_icmpv6_redirect_fields() {
         use core::net::Ipv6Addr;
+
         let mut msg = IcmpV6RedirectMsg {
             hdr: IcmpV6Hdr {
                 type_: 137,
@@ -2122,5 +2167,246 @@ mod tests {
         assert_eq!(hdr.code, 0);
         assert_eq!(hdr.checksum(), 0);
         assert_eq!(hdr.pointer().unwrap(), 40);
+    }
+}
+
+#[cfg(all(test, feature = "serde"))]
+mod serde_prop_tests {
+    use super::*;
+    use bincode::config;
+    use bincode::serde::{decode_from_slice, encode_to_vec};
+    use proptest::array::{uniform2, uniform4, uniform16};
+    use proptest::prelude::*;
+    use proptest::test_runner::Config as ProptestConfig;
+    use serde::Serialize;
+    use serde::de::DeserializeOwned;
+    use serde_cbor::{from_slice as cbor_from_slice, to_vec as cbor_to_vec};
+
+    fn round_trip<T>(value: &T) -> T
+    where
+        T: Serialize + DeserializeOwned,
+    {
+        let cfg = config::standard();
+        let bytes = encode_to_vec(value, cfg).unwrap();
+        let (decoded, _): (T, usize) = decode_from_slice(&bytes, cfg).unwrap();
+        decoded
+    }
+
+    fn round_trip_cbor<T>(value: &T) -> T
+    where
+        T: Serialize + DeserializeOwned,
+    {
+        let bytes = cbor_to_vec(value).unwrap();
+        cbor_from_slice(&bytes).unwrap()
+    }
+
+    fn icmp_hdr_strategy() -> impl Strategy<Value = IcmpHdr> {
+        (
+            any::<u8>(),
+            any::<u8>(),
+            uniform2(any::<u8>()),
+            uniform4(any::<u8>()),
+        )
+            .prop_map(|(type_, code, check, data)| IcmpHdr {
+                type_,
+                code,
+                check,
+                data: IcmpDataUn { reserved: data },
+            })
+    }
+
+    fn icmpv6_hdr_strategy() -> impl Strategy<Value = IcmpV6Hdr> {
+        let echo = (
+            Just(128u8),
+            any::<u8>(),
+            uniform2(any::<u8>()),
+            uniform2(any::<u8>()),
+            uniform2(any::<u8>()),
+        )
+            .prop_map(|(type_, code, check, id, seq)| IcmpV6Hdr {
+                type_,
+                code,
+                check,
+                data: IcmpV6DataUn {
+                    echo: IcmpEcho { id, sequence: seq },
+                },
+            });
+
+        let echo_reply = (
+            Just(129u8),
+            any::<u8>(),
+            uniform2(any::<u8>()),
+            uniform2(any::<u8>()),
+            uniform2(any::<u8>()),
+        )
+            .prop_map(|(type_, code, check, id, seq)| IcmpV6Hdr {
+                type_,
+                code,
+                check,
+                data: IcmpV6DataUn {
+                    echo: IcmpEcho { id, sequence: seq },
+                },
+            });
+
+        let packet_too_big = (
+            Just(2u8),
+            any::<u8>(),
+            uniform2(any::<u8>()),
+            uniform4(any::<u8>()),
+        )
+            .prop_map(|(type_, code, check, bytes)| IcmpV6Hdr {
+                type_,
+                code,
+                check,
+                data: IcmpV6DataUn {
+                    packet_too_big_mtu: bytes,
+                },
+            });
+
+        let param_problem = (
+            Just(4u8),
+            any::<u8>(),
+            uniform2(any::<u8>()),
+            uniform4(any::<u8>()),
+        )
+            .prop_map(|(type_, code, check, bytes)| IcmpV6Hdr {
+                type_,
+                code,
+                check,
+                data: IcmpV6DataUn {
+                    param_problem_pointer: bytes,
+                },
+            });
+
+        let redirect = (
+            Just(137u8),
+            any::<u8>(),
+            uniform2(any::<u8>()),
+            uniform4(any::<u8>()),
+        )
+            .prop_map(|(type_, code, check, reserved)| IcmpV6Hdr {
+                type_,
+                code,
+                check,
+                data: IcmpV6DataUn { reserved },
+            });
+
+        let fallback = (
+            any::<u8>().prop_filter("use reserved field", |ty| {
+                !matches!(ty, 128 | 129 | 2 | 4 | 137)
+            }),
+            any::<u8>(),
+            uniform2(any::<u8>()),
+            uniform4(any::<u8>()),
+        )
+            .prop_map(|(type_, code, check, bytes)| IcmpV6Hdr {
+                type_,
+                code,
+                check,
+                data: IcmpV6DataUn { reserved: bytes },
+            });
+
+        prop_oneof![
+            echo,
+            echo_reply,
+            packet_too_big,
+            param_problem,
+            redirect,
+            fallback
+        ]
+    }
+
+    fn icmpv6_redirect_msg_strategy() -> impl Strategy<Value = IcmpV6RedirectMsg> {
+        (
+            any::<u8>(),
+            uniform2(any::<u8>()),
+            uniform4(any::<u8>()),
+            uniform16(any::<u8>()),
+            uniform16(any::<u8>()),
+        )
+            .prop_map(|(code, check, reserved, target, dest)| IcmpV6RedirectMsg {
+                hdr: IcmpV6Hdr {
+                    type_: 137,
+                    code,
+                    check,
+                    data: IcmpV6DataUn { reserved },
+                },
+                target_address: target,
+                destination_address: dest,
+            })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig {
+            failure_persistence: None,
+            ..ProptestConfig::default()
+        })]
+
+        #[test]
+        fn icmp_hdr_round_trips(hdr in icmp_hdr_strategy()) {
+            let decoded = round_trip(&hdr);
+            prop_assert_eq!(decoded.type_, hdr.type_);
+            prop_assert_eq!(decoded.code, hdr.code);
+            prop_assert_eq!(decoded.check, hdr.check);
+            unsafe { prop_assert_eq!(decoded.data.reserved, hdr.data.reserved); }
+
+            let decoded_cbor = round_trip_cbor(&hdr);
+            prop_assert_eq!(decoded_cbor.type_, hdr.type_);
+            prop_assert_eq!(decoded_cbor.code, hdr.code);
+            prop_assert_eq!(decoded_cbor.check, hdr.check);
+            unsafe { prop_assert_eq!(decoded_cbor.data.reserved, hdr.data.reserved); }
+        }
+
+        #[test]
+        fn icmpv6_hdr_round_trips(hdr in icmpv6_hdr_strategy()) {
+            let decoded = round_trip(&hdr);
+            prop_assert_eq!(decoded.type_, hdr.type_);
+            prop_assert_eq!(decoded.code, hdr.code);
+            prop_assert_eq!(decoded.check, hdr.check);
+
+            let decoded_cbor = round_trip_cbor(&hdr);
+            prop_assert_eq!(decoded_cbor.type_, hdr.type_);
+            prop_assert_eq!(decoded_cbor.code, hdr.code);
+            prop_assert_eq!(decoded_cbor.check, hdr.check);
+
+            match hdr.type_ {
+                128 | 129 => unsafe {
+                    prop_assert_eq!(decoded.data.echo.id, hdr.data.echo.id);
+                    prop_assert_eq!(decoded.data.echo.sequence, hdr.data.echo.sequence);
+                    prop_assert_eq!(decoded_cbor.data.echo.id, hdr.data.echo.id);
+                    prop_assert_eq!(decoded_cbor.data.echo.sequence, hdr.data.echo.sequence);
+                },
+                2 => unsafe {
+                    prop_assert_eq!(decoded.data.packet_too_big_mtu, hdr.data.packet_too_big_mtu);
+                    prop_assert_eq!(decoded_cbor.data.packet_too_big_mtu, hdr.data.packet_too_big_mtu);
+                },
+                4 => unsafe {
+                    prop_assert_eq!(decoded.data.param_problem_pointer, hdr.data.param_problem_pointer);
+                    prop_assert_eq!(
+                        decoded_cbor.data.param_problem_pointer,
+                        hdr.data.param_problem_pointer
+                    );
+                },
+                _ => unsafe {
+                    prop_assert_eq!(decoded.data.reserved, hdr.data.reserved);
+                    prop_assert_eq!(decoded_cbor.data.reserved, hdr.data.reserved);
+                },
+            }
+        }
+
+        #[test]
+        fn icmpv6_redirect_msg_round_trips(msg in icmpv6_redirect_msg_strategy()) {
+            let decoded = round_trip(&msg);
+            prop_assert_eq!(decoded.hdr.type_, msg.hdr.type_);
+            prop_assert_eq!(decoded.hdr.code, msg.hdr.code);
+            prop_assert_eq!(decoded.hdr.check, msg.hdr.check);
+            unsafe { prop_assert_eq!(decoded.hdr.data.reserved, msg.hdr.data.reserved); }
+
+            let decoded_cbor = round_trip_cbor(&msg);
+            prop_assert_eq!(decoded_cbor.hdr.type_, msg.hdr.type_);
+            prop_assert_eq!(decoded_cbor.hdr.code, msg.hdr.code);
+            prop_assert_eq!(decoded_cbor.hdr.check, msg.hdr.check);
+            unsafe { prop_assert_eq!(decoded_cbor.hdr.data.reserved, msg.hdr.data.reserved); }
+        }
     }
 }
