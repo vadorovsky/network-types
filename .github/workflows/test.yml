@@ -34,9 +34,17 @@ jobs:
         with:
           target: ${{ matrix.target }}
       - uses: dtolnay/rust-toolchain@master
+        if: matrix.rust != 'nightly'
         with:
           toolchain: ${{ matrix.rust }}
-          components: rustfmt, clippy, rust-src
+          components: clippy,rustfmt
+          targets: ${{ matrix.target }}
+
+      - uses: dtolnay/rust-toolchain@master
+        if: matrix.rust == 'nightly'
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: miri
           targets: ${{ matrix.target }}
 
       - name: Check formatting
@@ -44,7 +52,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
+        if: matrix.rust == 'stable'
         run: cargo clippy --all-targets -- --deny warnings -A clippy::useless_transmute -A clippy::too_many_arguments
 
       - run: cargo build --all-targets
+      - run: cargo miri test --all-targets
+        if: matrix.rust == 'nightly'
       - run: cargo test
