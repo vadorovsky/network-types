@@ -51,7 +51,7 @@ pub struct IcmpHdr {
     pub type_: u8,
     pub code: u8,
     pub check: [u8; 2],
-    pub data: IcmpHdrUn,
+    pub data: IcmpDataUn,
 }
 
 impl IcmpHdr {
@@ -445,7 +445,7 @@ impl IcmpHdr {
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub union IcmpHdrUn {
+pub union IcmpDataUn {
     pub echo: IcmpEcho,
     pub redirect: [u8; 4],
     pub dst_unreachable: IcmpDstUnreachable,
@@ -455,15 +455,11 @@ pub union IcmpHdrUn {
     pub reserved: [u8; 4], // Generic 4-byte data, also for "Unused" fields
 }
 
-impl core::fmt::Debug for IcmpHdrUn {
+impl core::fmt::Debug for IcmpDataUn {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // Safe approach: just show the raw 4 bytes
         let bytes = unsafe { self.reserved };
-        write!(
-            f,
-            "IcmpHdrUn([{:#04x}, {:#04x}, {:#04x}, {:#04x}])",
-            bytes[0], bytes[1], bytes[2], bytes[3]
-        )
+        write!(f, "IcmpDataUn({bytes:#04x?})")
     }
 }
 
@@ -924,7 +920,7 @@ pub struct IcmpV6Hdr {
     pub type_: u8,
     pub code: u8,
     pub check: [u8; 2],
-    pub data: IcmpV6HdrUn,
+    pub data: IcmpV6DataUn,
 }
 
 /// Union holding the variable 4-byte field after the first 4 bytes of an ICMPv6 header.
@@ -936,7 +932,7 @@ pub struct IcmpV6Hdr {
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub union IcmpV6HdrUn {
+pub union IcmpV6DataUn {
     pub echo: IcmpEcho,
     pub packet_too_big_mtu: [u8; 4],
     pub param_problem_pointer: [u8; 4],
@@ -944,7 +940,7 @@ pub union IcmpV6HdrUn {
     pub reserved: [u8; 4],
 }
 
-impl IcmpV6HdrUn {
+impl IcmpV6DataUn {
     #[inline]
     unsafe fn mtu_unchecked(&self) -> u32 {
         getter_be!(self, packet_too_big_mtu, u32)
@@ -966,13 +962,13 @@ impl IcmpV6HdrUn {
     }
 }
 
-impl core::fmt::Debug for IcmpV6HdrUn {
+impl core::fmt::Debug for IcmpV6DataUn {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // Safe approach: just show the raw 4 bytes
         let bytes = unsafe { self.reserved };
         write!(
             f,
-            "IcmpV6HdrUn([{:#04x}, {:#04x}, {:#04x}, {:#04x}])",
+            "IcmpV6DataUn([{:#04x}, {:#04x}, {:#04x}, {:#04x}])",
             bytes[0], bytes[1], bytes[2], bytes[3]
         )
     }
@@ -1345,7 +1341,7 @@ mod tests {
             type_: 0,
             code: 0,
             check: [0, 0],
-            data: IcmpHdrUn {
+            data: IcmpDataUn {
                 reserved: [0, 0, 0, 0],
             },
         }
@@ -1930,7 +1926,7 @@ mod tests {
             type_: 0,
             code: 0,
             check: [0, 0],
-            data: IcmpV6HdrUn {
+            data: IcmpV6DataUn {
                 reserved: [0, 0, 0, 0],
             },
         }
