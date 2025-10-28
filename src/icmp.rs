@@ -928,7 +928,8 @@ pub struct IcmpV6Hdr {
 /// - `echo`: Used for Echo Request/Reply messages (Types: 128, 129)
 /// - `packet_too_big_mtu`: Used in Packet Too Big messages (Type 2) to indicate next-hop MTU
 /// - `param_problem_pointer`: Used in Parameter Problem messages (Type 4) to point to error location
-/// - `reserved`: Generic 4-byte field for unused/reserved data in other message types
+/// - `reserved`: Generic 4-byte field for unused/reserved data in other message types,
+///   including the reserved field of Redirect messages (Type 137)
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -936,7 +937,6 @@ pub union IcmpV6DataUn {
     pub echo: IcmpEcho,
     pub packet_too_big_mtu: [u8; 4],
     pub param_problem_pointer: [u8; 4],
-    pub redirect: IcmpV6Redirect,
     pub reserved: [u8; 4],
 }
 
@@ -974,13 +974,63 @@ impl core::fmt::Debug for IcmpV6DataUn {
     }
 }
 
+/// Full ICMPv6 Redirect message as defined in RFC 4443 section 4.5.
+/// Combines the base ICMPv6 header with the target and destination addresses.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct IcmpV6Redirect {
-    reserved: [u8; 4],
+pub struct IcmpV6RedirectMsg {
+    pub hdr: IcmpV6Hdr,
     target_address: [u8; 16],
     destination_address: [u8; 16],
+}
+
+impl IcmpV6RedirectMsg {
+    pub const LEN: usize = mem::size_of::<IcmpV6RedirectMsg>();
+
+    /// Returns the 4-byte reserved field from the embedded redirect header.
+    /// This field is currently unused and MUST be initialized to zeros by the sender.
+    #[inline]
+    pub fn reserved(&self) -> [u8; 4] {
+        unsafe { self.hdr.redirect_reserved_unchecked() }
+    }
+
+    /// Sets the 4-byte reserved field in the embedded redirect header.
+    /// This field is currently unused and MUST be set to zeros.
+    #[inline]
+    pub fn set_reserved(&mut self, reserved: [u8; 4]) {
+        unsafe {
+            self.hdr.set_redirect_reserved_unchecked(reserved);
+        }
+    }
+
+    /// Returns the Target Address from an ICMPv6 Redirect message (Type 137).
+    /// This field contains the address that is a better first hop to use for the destination.
+    #[inline]
+    pub fn target_address(&self) -> net::Ipv6Addr {
+        net::Ipv6Addr::from(self.target_address)
+    }
+
+    /// Sets the Target Address for an ICMPv6 Redirect message (Type 137).
+    /// This should be set to the address that is a better first hop to use for the destination.
+    #[inline]
+    pub fn set_target_address(&mut self, addr: net::Ipv6Addr) {
+        self.target_address = addr.octets();
+    }
+
+    /// Returns the Destination Address from an ICMPv6 Redirect message (Type 137).
+    /// This field contains the IP address of the destination that is redirected to the target.
+    #[inline]
+    pub fn destination_address(&self) -> net::Ipv6Addr {
+        net::Ipv6Addr::from(self.destination_address)
+    }
+
+    /// Sets the Destination Address for an ICMPv6 Redirect message (Type 137).
+    /// This should be set to the IP address of the destination that is redirected to the target.
+    #[inline]
+    pub fn set_destination_address(&mut self, addr: net::Ipv6Addr) {
+        self.destination_address = addr.octets();
+    }
 }
 
 impl IcmpV6Hdr {
@@ -1115,55 +1165,6 @@ impl IcmpV6Hdr {
         }
         Ok(())
     }
-
-    /// Returns the Target Address from an ICMPv6 Redirect message (Type 137).
-    /// This field contains the address that is a better first hop to use for the destination.
-    #[inline]
-    pub fn redirect_target_address(&self) -> Result<net::Ipv6Addr, IcmpError> {
-        if self.type_ != 137 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        Ok(unsafe { self.redirect_target_address_unchecked() })
-    }
-
-    /// Sets the Target Address for an ICMPv6 Redirect message (Type 137).
-    /// This should be set to the address that is a better first hop to use for the destination.
-    #[inline]
-    pub fn set_redirect_target_address(&mut self, addr: net::Ipv6Addr) -> Result<(), IcmpError> {
-        if self.type_ != 137 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        unsafe {
-            self.set_redirect_target_address_unchecked(addr);
-        }
-        Ok(())
-    }
-
-    /// Returns the Destination Address from an ICMPv6 Redirect message (Type 137).
-    /// This field contains the IP address of the destination that is redirected to the target.
-    #[inline]
-    pub fn redirect_destination_address(&self) -> Result<net::Ipv6Addr, IcmpError> {
-        if self.type_ != 137 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        Ok(unsafe { self.redirect_destination_address_unchecked() })
-    }
-
-    /// Sets the Destination Address for an ICMPv6 Redirect message (Type 137).
-    /// This should be set to the IP address of the destination that is redirected to the target.
-    #[inline]
-    pub fn set_redirect_destination_address(
-        &mut self,
-        addr: net::Ipv6Addr,
-    ) -> Result<(), IcmpError> {
-        if self.type_ != 137 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        unsafe {
-            self.set_redirect_destination_address_unchecked(addr);
-        }
-        Ok(())
-    }
 }
 
 impl IcmpV6Hdr {
@@ -1263,7 +1264,7 @@ impl IcmpV6Hdr {
     /// Accessing redirect fields with other types may result in undefined behavior.
     #[inline]
     pub unsafe fn redirect_reserved_unchecked(&self) -> [u8; 4] {
-        self.data.redirect.reserved
+        self.data.reserved
     }
 
     /// Sets the 4-byte reserved field for an ICMPv6 Redirect message (Type 137).
@@ -1274,51 +1275,7 @@ impl IcmpV6Hdr {
     /// Accessing redirect fields with other types may result in undefined behavior.
     #[inline]
     pub unsafe fn set_redirect_reserved_unchecked(&mut self, reserved: [u8; 4]) {
-        self.data.redirect.reserved = reserved;
-    }
-
-    /// Returns the Target Address from an ICMPv6 Redirect message (Type 137).
-    /// This field contains the address that is a better first hop to use for the destination.
-    ///
-    /// # Safety
-    /// Caller must ensure ICMPv6 type is 137 (Redirect) before calling.
-    /// Accessing redirect fields with other types may result in undefined behavior.
-    #[inline]
-    pub unsafe fn redirect_target_address_unchecked(&self) -> net::Ipv6Addr {
-        net::Ipv6Addr::from(unsafe { self.data.redirect.target_address })
-    }
-
-    /// Sets the Target Address for an ICMPv6 Redirect message (Type 137).
-    /// This should be set to the address that is a better first hop to use for the destination.
-    ///
-    /// # Safety
-    /// Caller must ensure ICMPv6 type is 137 (Redirect) before calling.
-    /// Accessing redirect fields with other types may result in undefined behavior.
-    #[inline]
-    pub unsafe fn set_redirect_target_address_unchecked(&mut self, addr: net::Ipv6Addr) {
-        self.data.redirect.target_address = addr.octets();
-    }
-
-    /// Returns the Destination Address from an ICMPv6 Redirect message (Type 137).
-    /// This field contains the IP address of the destination that is redirected to the target.
-    ///
-    /// # Safety
-    /// Caller must ensure ICMPv6 type is 137 (Redirect) before calling.
-    /// Accessing redirect fields with other types may result in undefined behavior.
-    #[inline]
-    pub unsafe fn redirect_destination_address_unchecked(&self) -> net::Ipv6Addr {
-        net::Ipv6Addr::from(unsafe { self.data.redirect.destination_address })
-    }
-
-    /// Sets the Destination Address for an ICMPv6 Redirect message (Type 137).
-    /// This should be set to the IP address of the destination that is redirected to the target.
-    ///
-    /// # Safety
-    /// Caller must ensure ICMPv6 type is 137 (Redirect) before calling.
-    /// Accessing redirect fields with other types may result in undefined behavior.
-    #[inline]
-    pub unsafe fn set_redirect_destination_address_unchecked(&mut self, addr: net::Ipv6Addr) {
-        self.data.redirect.destination_address = addr.octets();
+        self.data.reserved = reserved;
     }
 }
 
@@ -1914,10 +1871,16 @@ mod tests {
 
     #[test]
     fn test_icmpv6_hdr_size() {
-        // IcmpV6Hdr size includes the union which contains IcmpV6Redirect (largest variant)
-        // type(1) + code(1) + check(2) + data(union with IcmpV6Redirect which is 36 bytes)
-        assert_eq!(IcmpV6Hdr::LEN, 40);
+        // IcmpV6Hdr is the base header: type(1) + code(1) + check(2) + data(4)
+        assert_eq!(IcmpV6Hdr::LEN, 8);
         assert_eq!(IcmpV6Hdr::LEN, mem::size_of::<IcmpV6Hdr>());
+    }
+
+    #[test]
+    fn test_icmpv6_redirect_msg_size() {
+        assert_eq!(IcmpV6RedirectMsg::LEN, mem::size_of::<IcmpV6RedirectMsg>());
+        // Header (8 bytes) + target address (16) + destination address (16)
+        assert_eq!(IcmpV6RedirectMsg::LEN, 40);
     }
 
     // Helper function to create a default IcmpV6Hdr for testing
@@ -2040,34 +2003,33 @@ mod tests {
     #[test]
     fn test_icmpv6_redirect_fields() {
         use core::net::Ipv6Addr;
-        let mut hdr = create_test_icmpv6_hdr();
-        // Set type to Redirect (137) which is valid for redirect fields
-        hdr.type_ = 137;
+        let mut msg = IcmpV6RedirectMsg {
+            hdr: IcmpV6Hdr {
+                type_: 137,
+                code: 0,
+                check: [0, 0],
+                data: IcmpV6DataUn {
+                    reserved: [0, 0, 0, 0],
+                },
+            },
+            target_address: [0; 16],
+            destination_address: [0; 16],
+        };
 
         // Test reserved field
         let test_reserved: [u8; 4] = [0, 0, 0, 0]; // Should be zeros per RFC
-        hdr.set_redirect_reserved(test_reserved).unwrap();
-        assert_eq!(hdr.redirect_reserved().unwrap(), test_reserved);
+        msg.set_reserved(test_reserved);
+        assert_eq!(msg.reserved(), test_reserved);
 
         // Test target address
         let test_target = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1);
-        hdr.set_redirect_target_address(test_target).unwrap();
-        assert_eq!(hdr.redirect_target_address().unwrap(), test_target);
+        msg.set_target_address(test_target);
+        assert_eq!(msg.target_address(), test_target);
 
         // Test destination address
         let test_dest = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 2);
-        hdr.set_redirect_destination_address(test_dest).unwrap();
-        assert_eq!(hdr.redirect_destination_address().unwrap(), test_dest);
-
-        // Verify raw byte storage for target address
-        unsafe {
-            assert_eq!(hdr.data.redirect.target_address, test_target.octets());
-        }
-
-        // Verify raw byte storage for destination address
-        unsafe {
-            assert_eq!(hdr.data.redirect.destination_address, test_dest.octets());
-        }
+        msg.set_destination_address(test_dest);
+        assert_eq!(msg.destination_address(), test_dest);
     }
 
     #[test]
