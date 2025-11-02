@@ -3,6 +3,7 @@
 #![expect(unsafe_op_in_unsafe_fn)]
 
 pub mod arp;
+pub mod bgp;
 pub mod bitfield;
 pub mod eth;
 pub mod geneve;
