@@ -6,6 +6,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/vadorovsky/network-types/compare/v0.1.0...v0.1.1) - 2025-11-02
+
+### Added
+
+- add `Ipv4::options_len` ([#75](https://github.com/vadorovsky/network-types/pull/75))
+- Add support IGMPv2
+
+### Other
+
+- add `feature-powerset`
+- unbreak
+- Extract ICMPv6 redirect payload
+- rename `{Hdr,Data}Un`
+- add nightly CI
+- Remove excessive qualification
+- appease deprecation warnings
+- remove useless transmutes
+- Remove integer-to-pointer cast
+- Remove dependency on memoffset
+- add miri
+- use taiki-e/setup-cross-toolchain-action
+- `fail-fast: false`
+- remove `--verbose`
+- Bump edition to 2024
+- Derive Clone and Copy for Icmp enum ([#72](https://github.com/vadorovsky/network-types/pull/72))
+
 ## [0.0.8](https://github.com/vadorovsky/network-types/compare/v0.0.7...v0.0.8) - 2025-04-07
 
 ### Added
