@@ -41,6 +41,12 @@ impl Ipv4Hdr {
         (self.vihl & 0xF) << 2
     }
 
+    /// Returns the length of the IP options in bytes.
+    #[inline]
+    pub fn options_len(&self) -> u8 {
+        self.ihl() - Self::LEN as u8
+    }
+
     /// Sets both the version and IHL fields.
     #[inline]
     pub fn set_vihl(&mut self, version: u8, ihl_in_bytes: u8) {
@@ -621,10 +627,17 @@ mod tests {
         hdr.set_vihl(4, 20); // Version 4, IHL 20 bytes (5 words)
         assert_eq!(hdr.version(), 4);
         assert_eq!(hdr.ihl(), 20);
+        assert_eq!(hdr.options_len(), 0);
 
         hdr.set_vihl(4, 24); // Version 4, IHL 24 bytes (6 words)
         assert_eq!(hdr.version(), 4);
         assert_eq!(hdr.ihl(), 24);
+        assert_eq!(hdr.options_len(), 4);
+
+        hdr.set_vihl(4, 60); // Version 4, IHL 60 bytes (15 words)
+        assert_eq!(hdr.version(), 4);
+        assert_eq!(hdr.ihl(), 60);
+        assert_eq!(hdr.options_len(), 40);
     }
 
     #[test]
