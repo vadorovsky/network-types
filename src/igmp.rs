@@ -40,9 +40,21 @@ impl IGMPv1Hdr {
     }
 
     #[inline]
+    pub fn set_checksum(&mut self, checksum: u16) {
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, checksum, checksum) }
+    }
+
+    #[inline]
     pub fn group_address(&self) -> u32 {
         // SAFETY: Pointer arithmetic in bounds of the struct.
         unsafe { getter_be!(self, group_address, u32) }
+    }
+
+    #[inline]
+    pub fn set_group_address(&mut self, group_address: u32) {
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, group_address, group_address) }
     }
 }
 
@@ -74,15 +86,15 @@ impl IGMPv2Hdr {
     }
 
     #[inline]
-    pub fn group_address(&self) -> u32 {
-        // SAFETY: Pointer arithmetic in bounds of the struct.
-        unsafe { getter_be!(self, group_address, u32) }
-    }
-
-    #[inline]
     pub fn set_checksum(&mut self, checksum: u16) {
         // SAFETY: Pointer arithmetic in bounds of the struct.
         unsafe { setter_be!(self, checksum, checksum) }
+    }
+
+    #[inline]
+    pub fn group_address(&self) -> u32 {
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { getter_be!(self, group_address, u32) }
     }
 
     #[inline]
@@ -127,9 +139,21 @@ impl IGMPv3MembershipQueryHdr {
     }
 
     #[inline]
+    pub fn set_checksum(&mut self, checksum: u16) {
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, checksum, checksum) }
+    }
+
+    #[inline]
     pub fn group_address(&self) -> u32 {
         // SAFETY: Pointer arithmetic in bounds of the struct.
         unsafe { getter_be!(self, group_address, u32) }
+    }
+
+    #[inline]
+    pub fn set_group_address(&mut self, group_address: u32) {
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, group_address, group_address) }
     }
 
     #[inline]
@@ -146,6 +170,12 @@ impl IGMPv3MembershipQueryHdr {
     pub fn nb_sources(&self) -> u32 {
         // SAFETY: Pointer arithmetic in bounds of the struct.
         unsafe { getter_be!(self, nb_sources, u32) }
+    }
+
+    #[inline]
+    pub fn set_nb_sources(&mut self, nb_sources: u32) {
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, nb_sources, nb_sources) }
     }
 }
 
@@ -177,8 +207,20 @@ impl IGMPv3MembershipReportHdr {
     }
 
     #[inline]
+    pub fn set_checksum(&mut self, checksum: u16) {
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, checksum, checksum) }
+    }
+
+    #[inline]
     pub fn nb_group_records(&self) -> u16 {
         // SAFETY: Pointer arithmetic in bounds of the struct.
         unsafe { getter_be!(self, nb_group_records, u16) }
+    }
+
+    #[inline]
+    pub fn set_nb_group_records(&mut self, nb_group_records: u16) {
+        // SAFETY: Pointer arithmetic in bounds of the struct.
+        unsafe { setter_be!(self, nb_group_records, nb_group_records) }
     }
 }
