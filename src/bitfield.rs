@@ -104,16 +104,13 @@ where
 #[cfg(all(test, feature = "serde"))]
 mod serde_prop_tests {
     use super::*;
-    use bincode::config;
-    use bincode::serde::{decode_from_slice, encode_to_vec};
     use proptest::prelude::*;
     use proptest::test_runner::Config as ProptestConfig;
     use serde_cbor::{from_slice as cbor_from_slice, to_vec as cbor_to_vec};
 
-    fn round_trip_bincode(unit: &BitfieldUnit<[u8; 2]>) -> BitfieldUnit<[u8; 2]> {
-        let cfg = config::standard();
-        let bytes = encode_to_vec(unit, cfg).unwrap();
-        decode_from_slice(&bytes, cfg).unwrap().0
+    fn round_trip_postcard(unit: &BitfieldUnit<[u8; 2]>) -> BitfieldUnit<[u8; 2]> {
+        let bytes = postcard::to_allocvec(unit).unwrap();
+        postcard::from_bytes(&bytes).unwrap()
     }
 
     fn round_trip_cbor(unit: &BitfieldUnit<[u8; 2]>) -> BitfieldUnit<[u8; 2]> {
@@ -133,10 +130,10 @@ mod serde_prop_tests {
             let bit = (initial[0] as usize) % (initial.len() * 8);
             unit.set_bit(bit, true);
 
-            let via_bincode = round_trip_bincode(&unit);
+            let via_postcard = round_trip_postcard(&unit);
             let via_cbor = round_trip_cbor(&unit);
 
-            prop_assert_eq!(via_bincode.storage, unit.storage);
+            prop_assert_eq!(via_postcard.storage, unit.storage);
             prop_assert_eq!(via_cbor.storage, unit.storage);
         }
     }

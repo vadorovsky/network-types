@@ -2173,8 +2173,6 @@ mod tests {
 #[cfg(all(test, feature = "serde"))]
 mod serde_prop_tests {
     use super::*;
-    use bincode::config;
-    use bincode::serde::{decode_from_slice, encode_to_vec};
     use proptest::array::{uniform2, uniform4, uniform16};
     use proptest::prelude::*;
     use proptest::test_runner::Config as ProptestConfig;
@@ -2186,10 +2184,8 @@ mod serde_prop_tests {
     where
         T: Serialize + DeserializeOwned,
     {
-        let cfg = config::standard();
-        let bytes = encode_to_vec(value, cfg).unwrap();
-        let (decoded, _): (T, usize) = decode_from_slice(&bytes, cfg).unwrap();
-        decoded
+        let bytes = postcard::to_allocvec(value).unwrap();
+        postcard::from_bytes(&bytes).unwrap()
     }
 
     fn round_trip_cbor<T>(value: &T) -> T

@@ -335,8 +335,6 @@ mod test {
     #[test]
     #[cfg(feature = "serde")]
     fn test_serialize() {
-        use bincode::{config::standard, serde::encode_to_vec};
-
         let udp = UdpHdr {
             src: 4242_u16.to_be_bytes(),
             dst: 4789_u16.to_be_bytes(),
@@ -344,8 +342,6 @@ mod test {
             check: 0_u16.to_be_bytes(),
         };
 
-        let options = standard().with_fixed_int_encoding().with_big_endian();
-
-        encode_to_vec(udp, options).unwrap();
+        postcard::to_allocvec(&udp).unwrap();
     }
 }

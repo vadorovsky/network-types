@@ -115,7 +115,7 @@ principles:
 
 [Serde](https://serde.rs) support can be enabled through the `serde`
 feature flag. It is intended to be used with binary serialization libraries
-like [`bincode`](https://crates.io/crates/bincode) that leverage Serde's
+like [`postcard`](https://crates.io/crates/postcard) that leverage Serde's
 infrastructure.
 
 License: MIT
