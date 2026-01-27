@@ -287,7 +287,7 @@ impl Ipv6Hdr {
 /// Protocol which is encapsulated in the IPv4 packet.
 /// <https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml>
 #[repr(u8)]
-#[derive(PartialEq, Eq, Debug, Copy, Clone)]
+#[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum IpProto {
     /// IPv6 Hop-by-Hop Option
