@@ -2,7 +2,8 @@ use crate::bitfield::BitfieldU16;
 
 #[repr(C)]
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct MacHdr {
     _bitfield_frame_ctl: BitfieldU16,
     duration_id: [u8; 2],

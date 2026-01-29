@@ -4,8 +4,9 @@
 //! [BSD 3-Clause license](https://github.com/rust-lang/rust-bindgen/blob/master/LICENSE).
 
 #[repr(C)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct BitfieldU16 {
     storage: [u8; 2],
 }
@@ -96,24 +97,17 @@ impl BitfieldU16 {
     }
 }
 
-#[cfg(all(test, feature = "serde"))]
-mod serde_prop_tests {
+#[cfg(all(test, feature = "wincode"))]
+mod wincode_prop_tests {
     use super::*;
-    use bincode::config;
-    use bincode::serde::{decode_from_slice, encode_to_vec};
+    use core::mem;
     use proptest::prelude::*;
     use proptest::test_runner::Config as ProptestConfig;
-    use serde_cbor::{from_slice as cbor_from_slice, to_vec as cbor_to_vec};
 
-    fn round_trip_bincode(unit: &BitfieldU16) -> BitfieldU16 {
-        let cfg = config::standard();
-        let bytes = encode_to_vec(unit, cfg).unwrap();
-        decode_from_slice(&bytes, cfg).unwrap().0
-    }
-
-    fn round_trip_cbor(unit: &BitfieldU16) -> BitfieldU16 {
-        let bytes = cbor_to_vec(unit).unwrap();
-        cbor_from_slice(&bytes).unwrap()
+    fn round_trip(unit: &BitfieldU16) -> BitfieldU16 {
+        let mut buf = [0u8; mem::size_of::<BitfieldU16>()];
+        wincode::serialize_into(&mut buf.as_mut_slice(), unit).unwrap();
+        wincode::deserialize(&buf).unwrap()
     }
 
     proptest! {
@@ -128,11 +122,8 @@ mod serde_prop_tests {
             let bit = (initial[0] as usize) % (initial.len() * 8);
             unit.set_bit(bit, true);
 
-            let via_bincode = round_trip_bincode(&unit);
-            let via_cbor = round_trip_cbor(&unit);
-
-            prop_assert_eq!(via_bincode.storage, unit.storage);
-            prop_assert_eq!(via_cbor.storage, unit.storage);
+            let via_wincode = round_trip(&unit);
+            prop_assert_eq!(via_wincode.storage, unit.storage);
         }
     }
 }
