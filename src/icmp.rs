@@ -48,7 +48,8 @@ pub enum IcmpError {
 /// redirect gateway addresses, or pointers to errors in received packets.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct Icmpv4Hdr {
     pub type_: u8,
     pub code: u8,
@@ -389,7 +390,8 @@ impl Icmpv4Hdr {
 /// - 38: Domain Name Reply (deprecated)
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct IcmpIdSequence {
     pub id: [u8; 2],
     pub sequence: [u8; 2],
@@ -431,7 +433,8 @@ impl IcmpIdSequence {
 /// The four bytes encode the gateway internet address in network byte order.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct Icmpv4Redirect {
     gateway: [u8; 4],
 }
@@ -453,7 +456,8 @@ impl Icmpv4Redirect {
 /// of the next-hop network on which fragmentation is required.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct IcmpDstUnreachable {
     pub _unused: [u8; 2],
     pub mtu: [u8; 2],
@@ -482,7 +486,8 @@ impl IcmpDstUnreachable {
 /// and 3 bytes of unused padding to make the field a total of 4 bytes.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct Icmpv4ParamProblem {
     pub pointer: u8,
     pub _unused: [u8; 3], // To make up 4 bytes
@@ -506,7 +511,8 @@ impl Icmpv4ParamProblem {
 /// field indicating where in the message the error was detected.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct IcmpHdrPhoturis {
     pub reserved_spi: [u8; 2],
     pub pointer: [u8; 2],
@@ -539,7 +545,8 @@ impl IcmpHdrPhoturis {
 /// followed by 2 unused bytes to make a total of 4 bytes.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct IcmpTraceroute {
     pub id: [u8; 2],
     pub _unused: [u8; 2],
@@ -609,7 +616,8 @@ impl IcmpTraceroute {
 /// ```
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct IcmpTimestampMsgPart {
     pub originate_timestamp: [u8; 4],
     pub receive_timestamp: [u8; 4],
@@ -700,7 +708,8 @@ impl IcmpTimestampMsgPart {
 /// ```
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct IcmpTracerouteMsgPart {
     pub hops_out: [u8; 2],
     pub hops_in: [u8; 2],
@@ -789,7 +798,8 @@ impl IcmpTracerouteMsgPart {
 /// MTU values, or pointers to errors in received packets.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct Icmpv6Hdr {
     pub type_: u8,
     pub code: u8,
@@ -985,7 +995,8 @@ impl Icmpv6Hdr {
 /// Represents the Packet Too Big message.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct IcmpPacketTooBig {
     mtu: [u8; 4],
 }
@@ -1009,7 +1020,8 @@ impl IcmpPacketTooBig {
 /// [parameter-problem-v6]: https://datatracker.ietf.org/doc/html/rfc4443#section-3.4
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct Icmpv6ParamProblem {
     pub pointer: [u8; 4],
 }
@@ -1033,7 +1045,8 @@ impl Icmpv6ParamProblem {
 /// [redirect-v6]: https://datatracker.ietf.org/doc/html/rfc4861#section-4.5
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct Icmpv6Redirect {
     pub reserved: [u8; 4],
 }
@@ -1041,7 +1054,6 @@ pub struct Icmpv6Redirect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::mem;
     use core::net::Ipv4Addr;
 
     macro_rules! expect_data {
@@ -1747,34 +1759,39 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "serde"))]
-mod serde_prop_tests {
+#[cfg(all(test, feature = "wincode"))]
+mod wincode_prop_tests {
     use super::*;
-    use bincode::config;
-    use bincode::serde::{decode_from_slice, encode_to_vec};
-    use proptest::array::{uniform2, uniform4, uniform16};
+    use proptest::array::{uniform2, uniform4};
     use proptest::prelude::*;
     use proptest::test_runner::Config as ProptestConfig;
-    use serde::Serialize;
-    use serde::de::DeserializeOwned;
-    use serde_cbor::{from_slice as cbor_from_slice, to_vec as cbor_to_vec};
+    use wincode::{SchemaRead, SchemaWrite, config::DefaultConfig};
+
+    const MAX_PACKET_SIZE: usize = Icmpv6Hdr::LEN;
+
+    trait FixedPacket {
+        const SERIALIZED_LEN: usize;
+    }
+
+    impl FixedPacket for Icmpv4Hdr {
+        const SERIALIZED_LEN: usize = Icmpv4Hdr::LEN;
+    }
+
+    impl FixedPacket for Icmpv6Hdr {
+        const SERIALIZED_LEN: usize = Icmpv6Hdr::LEN;
+    }
 
     fn round_trip<T>(value: &T) -> T
     where
-        T: Serialize + DeserializeOwned,
+        T: SchemaWrite<DefaultConfig, Src = T>,
+        for<'de> T: SchemaRead<'de, DefaultConfig, Dst = T>,
+        T: FixedPacket,
     {
-        let cfg = config::standard();
-        let bytes = encode_to_vec(value, cfg).unwrap();
-        let (decoded, _): (T, usize) = decode_from_slice(&bytes, cfg).unwrap();
-        decoded
-    }
-
-    fn round_trip_cbor<T>(value: &T) -> T
-    where
-        T: Serialize + DeserializeOwned,
-    {
-        let bytes = cbor_to_vec(value).unwrap();
-        cbor_from_slice(&bytes).unwrap()
+        let mut bytes = [0u8; MAX_PACKET_SIZE];
+        let len = T::SERIALIZED_LEN;
+        assert!(len <= bytes.len());
+        wincode::serialize_into(bytes.as_mut_slice(), value).unwrap();
+        wincode::deserialize(&bytes).unwrap()
     }
 
     fn icmp_hdr_strategy() -> impl Strategy<Value = Icmpv4Hdr> {
@@ -1892,26 +1909,6 @@ mod serde_prop_tests {
         ]
     }
 
-    fn icmpv6_redirect_msg_strategy() -> impl Strategy<Value = IcmpV6RedirectMsg> {
-        (
-            any::<u8>(),
-            uniform2(any::<u8>()),
-            uniform4(any::<u8>()),
-            uniform16(any::<u8>()),
-            uniform16(any::<u8>()),
-        )
-            .prop_map(|(code, check, reserved, target, dest)| IcmpV6RedirectMsg {
-                hdr: Icmpv6Hdr {
-                    type_: 137,
-                    code,
-                    check,
-                    data: reserved,
-                },
-                target_address: target,
-                destination_address: dest,
-            })
-    }
-
     proptest! {
         #![proptest_config(ProptestConfig {
             failure_persistence: None,
@@ -1925,12 +1922,6 @@ mod serde_prop_tests {
             prop_assert_eq!(decoded.code, hdr.code);
             prop_assert_eq!(decoded.check, hdr.check);
             prop_assert_eq!(decoded.data, hdr.data);
-
-            let decoded_cbor = round_trip_cbor(&hdr);
-            prop_assert_eq!(decoded_cbor.type_, hdr.type_);
-            prop_assert_eq!(decoded_cbor.code, hdr.code);
-            prop_assert_eq!(decoded_cbor.check, hdr.check);
-            prop_assert_eq!(decoded_cbor.data, hdr.data);
         }
 
         #[test]
@@ -1940,31 +1931,6 @@ mod serde_prop_tests {
             prop_assert_eq!(decoded.code, hdr.code);
             prop_assert_eq!(decoded.check, hdr.check);
             prop_assert_eq!(decoded.data, hdr.data);
-
-            let decoded_cbor = round_trip_cbor(&hdr);
-            prop_assert_eq!(decoded_cbor.type_, hdr.type_);
-            prop_assert_eq!(decoded_cbor.code, hdr.code);
-            prop_assert_eq!(decoded_cbor.check, hdr.check);
-            prop_assert_eq!(decoded_cbor.data, hdr.data);
-        }
-
-        #[test]
-        fn icmpv6_redirect_msg_round_trips(msg in icmpv6_redirect_msg_strategy()) {
-            let decoded = round_trip(&msg);
-            prop_assert_eq!(decoded.hdr.type_, msg.hdr.type_);
-            prop_assert_eq!(decoded.hdr.code, msg.hdr.code);
-            prop_assert_eq!(decoded.hdr.check, msg.hdr.check);
-            prop_assert_eq!(decoded.hdr.data, msg.hdr.data);
-            prop_assert_eq!(decoded.target_address, msg.target_address);
-            prop_assert_eq!(decoded.destination_address, msg.destination_address);
-
-            let decoded_cbor = round_trip_cbor(&msg);
-            prop_assert_eq!(decoded_cbor.hdr.type_, msg.hdr.type_);
-            prop_assert_eq!(decoded_cbor.hdr.code, msg.hdr.code);
-            prop_assert_eq!(decoded_cbor.hdr.check, msg.hdr.check);
-            prop_assert_eq!(decoded_cbor.hdr.data, msg.hdr.data);
-            prop_assert_eq!(decoded_cbor.target_address, msg.target_address);
-            prop_assert_eq!(decoded_cbor.destination_address, msg.destination_address);
         }
     }
 }

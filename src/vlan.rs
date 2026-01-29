@@ -9,7 +9,8 @@ use num_traits::FromPrimitive as _;
 /// VLAN tag header structure
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct VlanHdr {
     /// First 2 bytes containing PCP (3 bits), DEI (1 bit), and VLAN ID (12 bits)
     pub tci: [u8; 2],
