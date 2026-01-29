@@ -2,7 +2,8 @@ use core::mem;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct SctpHdr {
     /// Source port in network byte order (big-endian)
     pub src: [u8; 2],
