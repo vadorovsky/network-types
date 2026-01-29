@@ -10,7 +10,7 @@ pub enum IpError {
 }
 
 /// IP headers, which are present after the Ethernet header.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
 pub enum IpHdr {
     V4(Ipv4Hdr),
     V6(Ipv6Hdr),
@@ -19,7 +19,8 @@ pub enum IpHdr {
 /// IPv4 header, which is present after the Ethernet header.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct Ipv4Hdr {
     pub vihl: u8,
     pub tos: u8,
@@ -187,7 +188,8 @@ impl Ipv4Hdr {
 /// IPv6 header, which is present after the Ethernet header.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct Ipv6Hdr {
     /// First 4 bytes containing Version (4 bits), Traffic Class (8 bits), and Flow Label (20 bits)
     pub vcf: [u8; 4],
@@ -318,7 +320,7 @@ impl Ipv6Hdr {
 /// <https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml>
 #[repr(u8)]
 #[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
 pub enum IpProto {
     /// IPv6 Hop-by-Hop Option
     HopOpt = 0,

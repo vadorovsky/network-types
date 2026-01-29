@@ -26,7 +26,8 @@ use crate::{getter_be, setter_be};
 /// ```
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct UdpHdr {
     /// Source port in network byte order (big-endian)
     pub src: [u8; 2],
@@ -333,9 +334,10 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "serde")]
+    #[cfg(feature = "wincode")]
     fn test_serialize() {
-        use bincode::{config::standard, serde::encode_to_vec};
+        use core::mem;
+        use wincode::{SchemaWrite, config::DefaultConfig};
 
         let udp = UdpHdr {
             src: 4242_u16.to_be_bytes(),
@@ -344,8 +346,8 @@ mod test {
             check: 0_u16.to_be_bytes(),
         };
 
-        let options = standard().with_fixed_int_encoding().with_big_endian();
-
-        encode_to_vec(udp, options).unwrap();
+        let mut bytes = [0u8; mem::size_of::<UdpHdr>()];
+        let mut writer = &mut bytes[..];
+        <UdpHdr as SchemaWrite<DefaultConfig>>::write(&mut writer, &udp).unwrap();
     }
 }

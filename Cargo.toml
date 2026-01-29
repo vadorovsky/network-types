@@ -10,12 +10,14 @@ readme = "README.md"
 edition = "2024"
 
 [dependencies]
-serde = { version = "1", default-features = false, features = ["derive"], optional = true }
+wincode = { version = "0.3.1", optional = true, default-features = false, features = ["derive"] }
 
 [dev-dependencies]
 assert_matches = { version = "1.5.0", default-features = false }
 aya-ebpf = { git = "https://github.com/aya-rs/aya", branch = "main" }
 aya-log-ebpf = { git = "https://github.com/aya-rs/aya", branch = "main" }
-bincode = { version = "2.0.1", default-features = false, features = ["serde","alloc"] }
 proptest = { version = "1.9.0", default-features = false, features = ["std"] }
-serde_cbor = { version = "0.11" }
+
+[features]
+default = ["wincode"]
+wincode = ["dep:wincode"]
