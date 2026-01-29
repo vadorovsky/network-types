@@ -191,7 +191,7 @@ pub struct IGMPv3MembershipReportHdr {
     /// Checksum
     pub checksum: [u8; 2],
 
-    _unused_2: [u8; 4],
+    _unused_2: [u8; 2],
 
     /// Number of Sources
     pub nb_group_records: [u8; 2],
