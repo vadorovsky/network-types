@@ -1,7 +1,7 @@
 use core::mem;
 
 /// Represents Logical Link Control according to ISO/IEC 8802-2 Definition
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LlcHdr {
