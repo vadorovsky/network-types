@@ -7,7 +7,7 @@ use core::mem;
 use num_traits::FromPrimitive as _;
 
 /// VLAN tag header structure
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct VlanHdr {
