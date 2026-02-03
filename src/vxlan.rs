@@ -6,7 +6,7 @@ use core::mem;
 /// Uses a 24-bit VXLAN Network Identifier (VNI) for traffic segregation.
 /// Header length: 8 bytes.
 /// Reference: RFC 7348.
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct VxlanHdr {

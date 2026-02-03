@@ -3,9 +3,8 @@ use crate::{getter_be, setter_be};
 /// Represents a Geneve (Generic Network Virtualization Encapsulation) header, according to RFC 8926.
 /// Geneve is an encapsulation protocol designed for network virtualization.
 ///
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone, Default)]
-
 pub struct GeneveHdr {
     /// Combined field: Version (2 bits) and Option Length (6 bits).
     pub ver_opt_len: u8,
