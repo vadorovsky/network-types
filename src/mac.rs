@@ -1,6 +1,6 @@
 use crate::bitfield::BitfieldU16;
 
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MacHdr {
