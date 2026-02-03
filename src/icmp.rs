@@ -44,7 +44,7 @@ pub enum IcmpError {
 ///
 /// The `data` field contains type-specific data such as echo identifiers/sequence numbers,
 /// redirect gateway addresses, or pointers to errors in received packets.
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpHdr {
@@ -313,7 +313,7 @@ impl IcmpHdr {
 /// - 18: Address Mask Reply (deprecated)
 /// - 37: Domain Name Request (deprecated)
 /// - 38: Domain Name Reply (deprecated)
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpEcho {
@@ -378,7 +378,7 @@ impl IcmpRedirect {
 /// For ICMP Type 3 "Destination Unreachable" Message (RFC 792) with support for PMTUD (RFC 1191)
 /// Contains 2 unused bytes followed by a Next-Hop MTU field indicating the maximum transmission unit
 /// of the next-hop network on which fragmentation is required.
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpDstUnreachable {
@@ -407,7 +407,7 @@ impl IcmpDstUnreachable {
 /// For ICMP Type 12 "Parameter Problem" Message (RFC 792)
 /// Contains a pointer to the byte in the original datagram that caused the error
 /// and 3 bytes of unused padding to make the field a total of 4 bytes.
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpParamProblem {
@@ -431,7 +431,7 @@ impl IcmpParamProblem {
 /// Contains 2 "Reserved" bytes followed by the Security Parameters Index used
 /// for a security association between two peers. Also includes a 2-byte pointer
 /// field indicating where in the message the error was detected.
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpHdrPhoturis {
@@ -465,7 +465,7 @@ impl IcmpHdrPhoturis {
 /// Contains a 16-bit ID Number field used by the source to match responses to outgoing requests
 /// followed by 2 unused bytes to make a total of 4 bytes. The ID Number helps match Reply messages
 /// (type 31) to their corresponding Requests.
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpTraceroute {
@@ -539,7 +539,7 @@ impl IcmpTraceroute {
 ///     Ok(0)
 /// }
 /// ```
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpTimestampMsgPart {
@@ -634,7 +634,7 @@ impl IcmpTimestampMsgPart {
 ///     Ok(0)
 /// }
 /// ```
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpTracerouteMsgPart {
@@ -723,7 +723,7 @@ impl IcmpTracerouteMsgPart {
 ///
 /// The `data` field contains type-specific data such as echo identifiers/sequence numbers,
 /// MTU values, or pointers to errors in received packets.
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpV6Hdr {
@@ -735,7 +735,7 @@ pub struct IcmpV6Hdr {
 
 /// Full ICMPv6 Redirect message as defined in RFC 4443 section 4.5.
 /// Combines the base ICMPv6 header with the target and destination addresses.
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpV6RedirectMsg {

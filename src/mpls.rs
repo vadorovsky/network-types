@@ -4,7 +4,7 @@ use core::mem;
 /// https://www.rfc-editor.org/rfc/rfc3032.html.
 /// This header format applies to all MPLS messages.
 /// 20 bits for Label - 3 for TC - 1 for S - 8 for TTL
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Mpls {
