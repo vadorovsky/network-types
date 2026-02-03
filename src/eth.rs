@@ -9,7 +9,7 @@ pub enum EthernetError {
 
 /// Ethernet header structure that appears at the beginning of every Ethernet frame.
 /// This structure represents the standard IEEE 802.3 Ethernet header format.
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EthHdr {
