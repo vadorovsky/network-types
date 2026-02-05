@@ -2,6 +2,13 @@ use core::mem;
 
 use crate::{getter_be, setter_be};
 
+/// Represents errors that can occur while processing ICMP headers.
+#[derive(Debug)]
+pub enum IpError {
+    /// Invalid ID of an encapsulated protocol.
+    InvalidProto(u8),
+}
+
 /// IP headers, which are present after the Ethernet header.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum IpHdr {
@@ -20,7 +27,7 @@ pub struct Ipv4Hdr {
     pub id: [u8; 2],
     pub frags: [u8; 2],
     pub ttl: u8,
-    pub proto: IpProto,
+    pub proto: u8,
     pub check: [u8; 2],
     pub src_addr: [u8; 4],
     pub dst_addr: [u8; 4],
@@ -126,6 +133,18 @@ impl Ipv4Hdr {
         unsafe { setter_be!(self, frags, value) }
     }
 
+    /// Returns the encapsulated protocol.
+    #[inline]
+    pub fn proto(&self) -> Result<IpProto, IpError> {
+        IpProto::try_from(self.proto)
+    }
+
+    /// Sets the encapsulated protocol.
+    #[inline]
+    pub fn set_proto(&mut self, proto: IpProto) {
+        self.proto = proto.into();
+    }
+
     /// Returns the checksum field.
     #[inline]
     pub fn checksum(&self) -> u16 {
@@ -175,7 +194,7 @@ pub struct Ipv6Hdr {
     /// Payload length (excluding the IPv6 header)
     pub payload_len: [u8; 2],
     /// Next header protocol
-    pub next_hdr: IpProto,
+    pub next_hdr: u8,
     /// Hop limit (similar to TTL in IPv4)
     pub hop_limit: u8,
     /// Source IPv6 address (16 bytes)
@@ -257,6 +276,17 @@ impl Ipv6Hdr {
     pub fn set_payload_len(&mut self, len: u16) {
         // SAFETY: Pointer arithmetic in bounds of the struct.
         unsafe { setter_be!(self, payload_len, len) }
+    }
+
+    /// Returns the encapsulated protocol.
+    #[inline]
+    pub fn next_hdr(&self) -> Result<IpProto, IpError> {
+        IpProto::try_from(self.next_hdr)
+    }
+
+    #[inline]
+    pub fn set_next_hdr(&mut self, proto: IpProto) {
+        self.next_hdr = proto.into();
     }
 
     /// Returns the source address field.
@@ -588,6 +618,30 @@ pub enum IpProto {
     Reserved = 255,
 }
 
+// This allows converting a u8 value into an IpProto enum variant.
+// This is useful when parsing headers.
+impl TryFrom<u8> for IpProto {
+    type Error = IpError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0..=144 | 253..=255 => {
+                // SAFETY: IpProto uses #[repr(u8)] and we only transmute known discriminants.
+                Ok(unsafe { core::mem::transmute::<u8, IpProto>(value) })
+            }
+            other => Err(IpError::InvalidProto(other)),
+        }
+    }
+}
+
+// This allows converting an IpProto enum variant back to its u8 representation.
+// This is useful when constructing headers.
+impl From<IpProto> for u8 {
+    fn from(value: IpProto) -> Self {
+        value as u8
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -602,7 +656,7 @@ mod tests {
             id: [0; 2],
             frags: [0; 2],
             ttl: 0,
-            proto: IpProto::Tcp,
+            proto: IpProto::Tcp.into(),
             check: [0; 2],
             src_addr: [0; 4],
             dst_addr: [0; 4],
@@ -614,7 +668,7 @@ mod tests {
         Ipv6Hdr {
             vcf: [0; 4],
             payload_len: [0; 2],
-            next_hdr: IpProto::Tcp,
+            next_hdr: IpProto::Tcp.into(),
             hop_limit: 0,
             src_addr: [0; 16],
             dst_addr: [0; 16],
