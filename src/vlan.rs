@@ -1,5 +1,10 @@
-use crate::{eth::EtherType, getter_be};
+use crate::{
+    eth::{EtherType, EthernetError},
+    getter_be,
+};
 use core::mem;
+
+use num_traits::FromPrimitive as _;
 
 /// VLAN tag header structure
 #[repr(C, packed)]
@@ -9,7 +14,7 @@ pub struct VlanHdr {
     /// First 2 bytes containing PCP (3 bits), DEI (1 bit), and VLAN ID (12 bits)
     pub tci: [u8; 2],
     /// EtherType field indicating the protocol encapsulated in the payload
-    pub eth_type: EtherType,
+    pub ether_type: u16,
 }
 
 impl VlanHdr {
@@ -41,7 +46,7 @@ impl VlanHdr {
 
     /// Get the EtherType value
     #[inline]
-    pub fn eth_type(&self) -> EtherType {
-        self.eth_type
+    pub fn ether_type(&self) -> Result<EtherType, EthernetError> {
+        EtherType::from_u16(self.ether_type).ok_or(EthernetError::InvalidEtherType(self.ether_type))
     }
 }
