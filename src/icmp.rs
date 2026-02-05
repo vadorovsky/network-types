@@ -51,11 +51,56 @@ pub struct IcmpHdr {
     pub type_: u8,
     pub code: u8,
     pub check: [u8; 2],
-    pub data: IcmpDataUn,
+    pub data: [u8; 4],
+}
+
+/// Strongly typed view of the bytes stored in [`IcmpHdr::data`].
+#[derive(Debug, Copy, Clone)]
+pub enum IcmpHdrMessage<'a> {
+    Echo(&'a IcmpEcho),
+    Redirect(&'a IcmpRedirect),
+    DestinationUnreachable(&'a IcmpDstUnreachable),
+    ParameterProblem(&'a IcmpParamProblem),
+    Traceroute(&'a IcmpTraceroute),
+    Photuris(&'a IcmpHdrPhoturis),
+}
+
+/// Mutable strongly typed view of [`IcmpHdr::data`].
+#[derive(Debug)]
+pub enum IcmpHdrMessageMut<'a> {
+    Echo(&'a mut IcmpEcho),
+    Redirect(&'a mut IcmpRedirect),
+    DestinationUnreachable(&'a mut IcmpDstUnreachable),
+    ParameterProblem(&'a mut IcmpParamProblem),
+    Traceroute(&'a mut IcmpTraceroute),
+    Photuris(&'a mut IcmpHdrPhoturis),
+}
+
+#[derive(Clone, Copy)]
+enum IcmpMessageKind {
+    Echo,
+    Redirect,
+    DestinationUnreachable,
+    ParameterProblem,
+    Traceroute,
+    Photuris,
 }
 
 impl IcmpHdr {
     pub const LEN: usize = mem::size_of::<IcmpHdr>();
+
+    #[inline]
+    fn message_kind(&self) -> Result<IcmpMessageKind, IcmpError> {
+        match self.type_ {
+            0 | 8 | 13 | 14 | 15 | 16 | 17 | 18 | 37 | 38 => Ok(IcmpMessageKind::Echo),
+            3 => Ok(IcmpMessageKind::DestinationUnreachable),
+            5 => Ok(IcmpMessageKind::Redirect),
+            12 => Ok(IcmpMessageKind::ParameterProblem),
+            30 | 31 => Ok(IcmpMessageKind::Traceroute),
+            40 => Ok(IcmpMessageKind::Photuris),
+            _ => Err(IcmpError::InvalidIcmpType),
+        }
+    }
 
     /// Returns the ICMP header checksum value in host byte order.
     /// This field is used to detect data corruption in the ICMP header and payload.
@@ -72,393 +117,187 @@ impl IcmpHdr {
         unsafe { setter_be!(self, check, checksum) }
     }
 
-    /// Returns the identification field from ICMP Echo/Timestamp/Info/Mask messages.
-    /// Only valid for ICMP Types: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38.
+    /// Returns a type-safe view over the `data` bytes based on the message type.
+    /// Consumers can match on the returned enum once and reuse the borrowed view.
     #[inline]
-    pub fn echo_id(&self) -> Result<u16, IcmpError> {
-        if !matches!(self.type_, 0 | 8 | 13 | 14 | 15 | 16 | 17 | 18 | 37 | 38) {
-            return Err(IcmpError::InvalidIcmpType);
+    pub fn message(&self) -> Result<IcmpHdrMessage<'_>, IcmpError> {
+        match self.message_kind()? {
+            IcmpMessageKind::Echo => Ok(IcmpHdrMessage::Echo(unsafe { self.echo_unchecked() })),
+            IcmpMessageKind::Redirect => Ok(IcmpHdrMessage::Redirect(unsafe {
+                self.redirect_unchecked()
+            })),
+            IcmpMessageKind::DestinationUnreachable => {
+                Ok(IcmpHdrMessage::DestinationUnreachable(unsafe {
+                    self.destination_unreachable_unchecked()
+                }))
+            }
+            IcmpMessageKind::ParameterProblem => Ok(IcmpHdrMessage::ParameterProblem(unsafe {
+                self.parameter_problem_unchecked()
+            })),
+            IcmpMessageKind::Traceroute => Ok(IcmpHdrMessage::Traceroute(unsafe {
+                self.traceroute_unchecked()
+            })),
+            IcmpMessageKind::Photuris => Ok(IcmpHdrMessage::Photuris(unsafe {
+                self.photuris_unchecked()
+            })),
         }
-        Ok(unsafe { self.echo_id_unchecked() })
     }
 
-    /// Sets the identification field for ICMP Echo/Timestamp/Info/Mask messages.
-    /// Only valid for ICMP Types: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38.
+    /// Returns a mutable type-safe view over the `data` bytes based on the message type.
+    /// Only the specific variant matching the header's type will be returned.
     #[inline]
-    pub fn set_echo_id(&mut self, id: u16) -> Result<(), IcmpError> {
-        if !matches!(self.type_, 0 | 8 | 13 | 14 | 15 | 16 | 17 | 18 | 37 | 38) {
-            return Err(IcmpError::InvalidIcmpType);
+    pub fn message_mut(&mut self) -> Result<IcmpHdrMessageMut<'_>, IcmpError> {
+        match self.message_kind()? {
+            IcmpMessageKind::Echo => Ok(IcmpHdrMessageMut::Echo(unsafe {
+                self.echo_mut_unchecked()
+            })),
+            IcmpMessageKind::Redirect => Ok(IcmpHdrMessageMut::Redirect(unsafe {
+                self.redirect_mut_unchecked()
+            })),
+            IcmpMessageKind::DestinationUnreachable => {
+                Ok(IcmpHdrMessageMut::DestinationUnreachable(unsafe {
+                    self.destination_unreachable_mut_unchecked()
+                }))
+            }
+            IcmpMessageKind::ParameterProblem => Ok(IcmpHdrMessageMut::ParameterProblem(unsafe {
+                self.parameter_problem_mut_unchecked()
+            })),
+            IcmpMessageKind::Traceroute => Ok(IcmpHdrMessageMut::Traceroute(unsafe {
+                self.traceroute_mut_unchecked()
+            })),
+            IcmpMessageKind::Photuris => Ok(IcmpHdrMessageMut::Photuris(unsafe {
+                self.photuris_mut_unchecked()
+            })),
         }
-        unsafe {
-            self.set_echo_id_unchecked(id);
-        }
-        Ok(())
-    }
-
-    /// Returns the sequence number from ICMP Echo/Timestamp/Info/Mask messages.
-    #[inline]
-    pub fn echo_sequence(&self) -> Result<u16, IcmpError> {
-        if !matches!(self.type_, 0 | 8 | 13 | 14 | 15 | 16 | 17 | 18 | 37 | 38) {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        Ok(unsafe { self.echo_sequence_unchecked() })
-    }
-
-    /// Sets the sequence number for ICMP Echo/Timestamp/Info/Mask messages.
-    /// Only valid for ICMP Types: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38.
-    #[inline]
-    pub fn set_echo_sequence(&mut self, sequence: u16) -> Result<(), IcmpError> {
-        if !matches!(self.type_, 0 | 8 | 13 | 14 | 15 | 16 | 17 | 18 | 37 | 38) {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        unsafe {
-            self.set_echo_sequence_unchecked(sequence);
-        }
-        Ok(())
-    }
-
-    /// Returns the gateway internet address from an ICMP Redirect message (Type 5)
-    #[inline]
-    pub fn gateway_address(&self) -> Result<net::Ipv4Addr, IcmpError> {
-        if self.type_ != 5 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        Ok(unsafe { self.gateway_address_unchecked() })
-    }
-
-    /// Sets the gateway internet address for an ICMP Redirect message (Type 5)
-    #[inline]
-    pub fn set_gateway_address(&mut self, addr: net::Ipv4Addr) -> Result<(), IcmpError> {
-        if self.type_ != 5 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        unsafe {
-            self.set_gateway_address_unchecked(addr);
-        }
-        Ok(())
-    }
-
-    /// Returns the Next-Hop MTU field from a Destination Unreachable message
-    /// in host byte order. Used for Path MTU Discovery (RFC 1191).
-    #[inline]
-    pub fn next_hop_mtu(&self) -> Result<u16, IcmpError> {
-        if self.type_ != 3 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        Ok(unsafe { self.next_hop_mtu_unchecked() })
-    }
-
-    /// Sets the Next-Hop MTU field for a Destination Unreachable message.
-    /// Used for Path MTU Discovery (RFC 1191).
-    #[inline]
-    pub fn set_next_hop_mtu(&mut self, mtu: u16) -> Result<(), IcmpError> {
-        if self.type_ != 3 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        unsafe {
-            self.set_next_hop_mtu_unchecked(mtu);
-        }
-        Ok(())
-    }
-
-    /// Returns the pointer to the errored byte from a Parameter Problem message (Type 12)
-    #[inline]
-    pub fn parameter_pointer(&self) -> Result<u8, IcmpError> {
-        if self.type_ != 12 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        Ok(unsafe { self.parameter_pointer_unchecked() })
-    }
-
-    /// Sets the pointer to the errored byte for a Parameter Problem message (Type 12)
-    #[inline]
-    pub fn set_parameter_pointer(&mut self, pointer: u8) -> Result<(), IcmpError> {
-        if self.type_ != 12 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        unsafe {
-            self.set_parameter_pointer_unchecked(pointer);
-        }
-        Ok(())
-    }
-
-    /// Returns the ID Number field from a Traceroute message (Type 30).
-    /// The ID Number is used to match Reply messages (Type 31) to their corresponding Request messages.
-    /// This is only valid for ICMP Type 30 (Traceroute Request) and Type 31 (Traceroute Reply).
-    #[inline]
-    pub fn traceroute_id(&self) -> Result<u16, IcmpError> {
-        if !matches!(self.type_, 30 | 31) {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        Ok(unsafe { self.traceroute_id_unchecked() })
-    }
-
-    /// Sets the ID Number field for a Traceroute message (Type 30).
-    /// The ID Number is used to match Reply messages (Type 31) to their corresponding Request messages.
-    #[inline]
-    pub fn set_traceroute_id(&mut self, id: u16) -> Result<(), IcmpError> {
-        if !matches!(self.type_, 30 | 31) {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        unsafe {
-            self.set_traceroute_id_unchecked(id);
-        }
-        Ok(())
-    }
-
-    /// Returns the Security Parameters Index (SPI) from a PHOTURIS message (Type 40).
-    /// The SPI identifies a security association between two peers.
-    #[inline]
-    pub fn photuris_spi(&self) -> Result<u16, IcmpError> {
-        if self.type_ != 40 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        Ok(unsafe { self.photuris_spi_unchecked() })
-    }
-
-    /// Sets the Security Parameters Index (SPI) for a PHOTURIS message (Type 40).
-    /// The SPI identifies a security association between two peers.
-    #[inline]
-    pub fn set_photuris_spi(&mut self, spi: u16) -> Result<(), IcmpError> {
-        if self.type_ != 40 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        unsafe {
-            self.set_photuris_spi_unchecked(spi);
-        }
-        Ok(())
-    }
-
-    /// Returns the pointer to the byte where an error was detected in a PHOTURIS message (Type 40).
-    /// Used to identify the location of errors during PHOTURIS protocol processing.
-    #[inline]
-    pub fn photuris_pointer(&self) -> Result<u16, IcmpError> {
-        if self.type_ != 40 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        Ok(unsafe { self.photuris_pointer_unchecked() })
-    }
-
-    /// Sets the pointer to the byte where an error was detected in a PHOTURIS message (Type 40).
-    /// Used to identify the location of errors during PHOTURIS protocol processing.
-    #[inline]
-    pub fn set_photuris_pointer(&mut self, pointer: u16) -> Result<(), IcmpError> {
-        if self.type_ != 40 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        unsafe {
-            self.set_photuris_pointer_unchecked(pointer);
-        }
-        Ok(())
     }
 }
 
 /// These are the unsafe alternatives to the safe functions on `IcmpHdr` that do prevent undefined behavior.
 impl IcmpHdr {
-    /// Returns the identification field from ICMP Echo/Timestamp/Info/Mask messages.
+    /// Returns a reference to the ICMP Echo/Timestamp/Info/Mask message.
     /// Only valid for ICMP Types: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38.
     ///
     /// # Safety
     /// Caller must ensure that the ICMP type is one of: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38
-    /// before calling this function. Accessing the echo fields with other ICMP types may result
+    /// before calling this function. Calling this method with other ICMP types may result
     /// in undefined behavior.
     #[inline]
-    pub unsafe fn echo_id_unchecked(&self) -> u16 {
-        self.data.echo.id_unchecked()
+    pub unsafe fn echo_unchecked(&self) -> &IcmpEcho {
+        &*self.data.as_ptr().cast()
     }
 
-    /// Sets the identification field for ICMP Echo/Timestamp/Info/Mask messages.
+    /// Returns a mutable reference to the ICMP Echo/Timestamp/Info/Mask message.
     /// Only valid for ICMP Types: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38.
     ///
     /// # Safety
     /// Caller must ensure that the ICMP type is one of: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38
-    /// before calling this function. Accessing the echo fields with other ICMP types may result
+    /// before calling this function. Calling this method with other ICMP types may result
     /// in undefined behavior.
     #[inline]
-    pub unsafe fn set_echo_id_unchecked(&mut self, id: u16) {
-        self.data.echo.set_id_unchecked(id);
+    pub unsafe fn echo_mut_unchecked(&mut self) -> &mut IcmpEcho {
+        &mut *self.data.as_mut_ptr().cast()
     }
 
-    /// Returns the sequence number from ICMP Echo/Timestamp/Info/Mask messages.
-    /// Only valid for ICMP Types: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38.
-    ///
-    /// # Safety
-    /// Caller must ensure that the ICMP type is one of: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38
-    /// before calling this function. Accessing the echo fields with other ICMP types may result
-    /// in undefined behavior.
-    #[inline]
-    pub unsafe fn echo_sequence_unchecked(&self) -> u16 {
-        self.data.echo.sequence_unchecked()
-    }
-
-    /// Sets the sequence number for ICMP Echo/Timestamp/Info/Mask messages.
-    /// Only valid for ICMP Types: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38.
-    ///
-    /// # Safety
-    /// Caller must ensure that the ICMP type is one of: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38
-    /// before calling this function. Accessing the echo fields with other ICMP types may result
-    /// in undefined behavior.
-    #[inline]
-    pub unsafe fn set_echo_sequence_unchecked(&mut self, sequence: u16) {
-        self.data.echo.set_sequence_unchecked(sequence);
-    }
-
-    /// Returns the gateway internet address from an ICMP Redirect message (Type 5)
+    /// Returns a reference to the Redirect message payload (Type 5).
     ///
     /// # Safety
     /// Caller must ensure ICMP type is 5 (Redirect) before calling this function.
-    /// Accessing the redirect field with other ICMP types may result in undefined behavior.
     #[inline]
-    pub unsafe fn gateway_address_unchecked(&self) -> net::Ipv4Addr {
-        net::Ipv4Addr::from(self.data.redirect)
+    pub unsafe fn redirect_unchecked(&self) -> &IcmpRedirect {
+        &*self.data.as_ptr().cast()
     }
 
-    /// Sets the gateway internet address for an ICMP Redirect message (Type 5)
+    /// Returns a mutable reference to the Redirect message payload (Type 5).
     ///
     /// # Safety
     /// Caller must ensure ICMP type is 5 (Redirect) before calling this function.
-    /// Accessing the redirect field with other ICMP types may result in undefined behavior.
     #[inline]
-    pub unsafe fn set_gateway_address_unchecked(&mut self, addr: net::Ipv4Addr) {
-        self.data.redirect = addr.octets();
+    pub unsafe fn redirect_mut_unchecked(&mut self) -> &mut IcmpRedirect {
+        &mut *self.data.as_mut_ptr().cast()
     }
 
-    /// Returns the Next-Hop MTU field from a Destination Unreachable message
-    /// in host byte order. Used for Path MTU Discovery (RFC 1191).
-    ///
-    /// # Safety
-    /// Caller must ensure ICMP type is 3 (Destination Unreachable) before calling this function.
-    /// Accessing the dst_unreachable field with other ICMP types may result in undefined behavior.
-    #[inline]
-    pub unsafe fn next_hop_mtu_unchecked(&self) -> u16 {
-        self.data.dst_unreachable.mtu_unchecked()
-    }
-
-    /// Sets the Next-Hop MTU field for a Destination Unreachable message.
+    /// Returns a reference to the Destination Unreachable message.
     /// Used for Path MTU Discovery (RFC 1191).
     ///
     /// # Safety
     /// Caller must ensure ICMP type is 3 (Destination Unreachable) before calling this function.
     /// Accessing the dst_unreachable field with other ICMP types may result in undefined behavior.
     #[inline]
-    pub unsafe fn set_next_hop_mtu_unchecked(&mut self, mtu: u16) {
-        self.data.dst_unreachable.set_mtu_unchecked(mtu)
+    pub unsafe fn destination_unreachable_unchecked(&self) -> &IcmpDstUnreachable {
+        &*self.data.as_ptr().cast()
     }
 
-    /// Returns the pointer to the errored byte from a Parameter Problem message (Type 12)
+    /// Returns a mutable reference to the Destination Unreachable message.
+    /// Used for Path MTU Discovery (RFC 1191).
+    ///
+    /// # Safety
+    /// Caller must ensure ICMP type is 3 (Destination Unreachable) before calling this function.
+    /// Accessing the dst_unreachable field with other ICMP types may result in undefined behavior.
+    #[inline]
+    pub unsafe fn destination_unreachable_mut_unchecked(&mut self) -> &mut IcmpDstUnreachable {
+        &mut *self.data.as_mut_ptr().cast()
+    }
+
+    /// Returns a reference to the Parameter Problem message (Type 12)
     ///
     /// # Safety
     /// Caller must ensure ICMP type is 12 (Parameter Problem) before calling this function.
     /// Accessing the param_problem field with other ICMP types may result in undefined behavior.
     #[inline]
-    pub unsafe fn parameter_pointer_unchecked(&self) -> u8 {
-        self.data.param_problem.pointer
+    pub unsafe fn parameter_problem_unchecked(&self) -> &IcmpParamProblem {
+        &*self.data.as_ptr().cast()
     }
 
-    /// Sets the pointer to the errored byte for a Parameter Problem message (Type 12)
+    /// Returns a reference to the Parameter Problem message (Type 12)
     ///
     /// # Safety
     /// Caller must ensure ICMP type is 12 (Parameter Problem) before calling this function.
     /// Accessing the param_problem field with other ICMP types may result in undefined behavior.
     #[inline]
-    pub unsafe fn set_parameter_pointer_unchecked(&mut self, pointer: u8) {
-        self.data.param_problem.pointer = pointer;
+    pub unsafe fn parameter_problem_mut_unchecked(&mut self) -> &mut IcmpParamProblem {
+        &mut *self.data.as_mut_ptr().cast()
     }
 
-    /// Returns the ID Number field from a Traceroute message (Type 30).
-    /// The ID Number is used to match Reply messages (Type 31) to their corresponding Request messages.
+    /// Returns a reference the Traceroute message (Type 30).
     /// This is only valid for ICMP Type 30 (Traceroute Request) and Type 31 (Traceroute Reply).
     ///
     /// # Safety
     /// Caller must ensure ICMP type is 30 (Traceroute Request) or 31 (Traceroute Reply) before calling
     /// this function. Accessing the traceroute field with other ICMP types may result in undefined behavior.
     #[inline]
-    pub unsafe fn traceroute_id_unchecked(&self) -> u16 {
-        self.data.traceroute.id_unchecked()
+    pub unsafe fn traceroute_unchecked(&self) -> &IcmpTraceroute {
+        &*self.data.as_ptr().cast()
     }
 
-    /// Sets the ID Number field for a Traceroute message (Type 30).
-    /// The ID Number is used to match Reply messages (Type 31) to their corresponding Request messages.
+    /// Returns a mutable reference the Traceroute message (Type 30).
+    /// This is only valid for ICMP Type 30 (Traceroute Request) and Type 31 (Traceroute Reply).
     ///
     /// # Safety
     /// Caller must ensure ICMP type is 30 (Traceroute Request) or 31 (Traceroute Reply) before calling
     /// this function. Accessing the traceroute field with other ICMP types may result in undefined behavior.
     #[inline]
-    pub unsafe fn set_traceroute_id_unchecked(&mut self, id: u16) {
-        self.data.traceroute.set_id_unchecked(id);
+    pub unsafe fn traceroute_mut_unchecked(&mut self) -> &mut IcmpTraceroute {
+        &mut *self.data.as_mut_ptr().cast()
     }
 
-    /// Returns the Security Parameters Index (SPI) from a PHOTURIS message (Type 40).
-    /// The SPI identifies a security association between two peers.
+    /// Returns a reference to the PHOTURIS message (Type 40).
     ///
     /// # Safety
     /// Caller must ensure ICMP type is 40 (PHOTURIS) before calling this function.
     /// Accessing the photuris field with other ICMP types may result in undefined behavior.
     #[inline]
-    pub unsafe fn photuris_spi_unchecked(&self) -> u16 {
-        self.data.photuris.reserved_spi_unchecked()
+    pub unsafe fn photuris_unchecked(&self) -> &IcmpHdrPhoturis {
+        &*self.data.as_ptr().cast()
     }
 
-    /// Sets the Security Parameters Index (SPI) for a PHOTURIS message (Type 40).
-    /// The SPI identifies a security association between two peers.
+    /// Returns a mutable reference to the PHOTURIS message (Type 40).
     ///
     /// # Safety
     /// Caller must ensure ICMP type is 40 (PHOTURIS) before calling this function.
     /// Accessing the photuris field with other ICMP types may result in undefined behavior.
     #[inline]
-    pub unsafe fn set_photuris_spi_unchecked(&mut self, spi: u16) {
-        self.data.photuris.set_reserved_spi_unckecked(spi);
-    }
-
-    /// Returns the pointer to the byte where an error was detected in a PHOTURIS message (Type 40).
-    /// Used to identify the location of errors during PHOTURIS protocol processing.
-    ///
-    /// # Safety
-    /// Caller must ensure ICMP type is 40 (PHOTURIS) before calling this function.
-    /// Accessing the photuris field with other ICMP types may result in undefined behavior.
-    #[inline]
-    pub unsafe fn photuris_pointer_unchecked(&self) -> u16 {
-        self.data.photuris.pointer_unchecked()
-    }
-
-    /// Sets the pointer to the byte where an error was detected in a PHOTURIS message (Type 40).
-    /// Used to identify the location of errors during PHOTURIS protocol processing.
-    ///
-    /// # Safety
-    /// Caller must ensure ICMP type is 40 (PHOTURIS) before calling this function.
-    /// Accessing the photuris field with other ICMP types may result in undefined behavior.
-    #[inline]
-    pub unsafe fn set_photuris_pointer_unchecked(&mut self, pointer: u16) {
-        self.data.photuris.set_pointer_unchecked(pointer);
-    }
-}
-
-/// Union holding the variable 4-byte field after the first 4 bytes of an ICMP header.
-/// The meaning of this field depends on the ICMP type:
-/// - `echo`: Used for Echo Request/Reply and other messages with ID/sequence numbers (Types: 0,8,13,14,15,16,17,18,37,38)
-/// - `redirect`: Used for Redirect messages (Type 5) to hold gateway IPv4 address
-/// - `dst_unreachable`: Used for Destination Unreachable messages (Type 3) to hold Next-Hop MTU
-/// - `param_problem`: Used for Parameter Problem messages (Type 12) to point to error location
-/// - `traceroute`: Used for Traceroute messages (Type 30) to hold ID number
-/// - `photuris`: Used for PHOTURIS security messages (Type 40) to hold SPI and error pointer
-/// - `reserved`: Generic 4-byte field for types not covered by other variants
-#[repr(C, packed)]
-#[derive(Copy, Clone)]
-pub union IcmpDataUn {
-    pub echo: IcmpEcho,
-    pub redirect: [u8; 4],
-    pub dst_unreachable: IcmpDstUnreachable,
-    pub param_problem: IcmpParamProblem,
-    pub traceroute: IcmpTraceroute,
-    pub photuris: IcmpHdrPhoturis,
-    pub reserved: [u8; 4], // Generic 4-byte data, also for "Unused" fields
-}
-
-impl core::fmt::Debug for IcmpDataUn {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        // Safe approach: just show the raw 4 bytes
-        let bytes = unsafe { self.reserved };
-        write!(f, "IcmpDataUn({bytes:#04x?})")
+    pub unsafe fn photuris_mut_unchecked(&mut self) -> &mut IcmpHdrPhoturis {
+        &mut *self.data.as_mut_ptr().cast()
     }
 }
 
@@ -484,39 +323,21 @@ pub struct IcmpEcho {
 
 impl IcmpEcho {
     /// Returns the identification field from ICMP Echo/Timestamp/Info/Mask messages.
-    /// Only valid for ICMP Types: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38.
-    ///
-    /// # Safety
-    /// Caller must ensure that the ICMP type is one of: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38
-    /// before calling this function. Accessing the echo fields with other ICMP types may result
-    /// in undefined behavior.
     #[inline]
-    unsafe fn id_unchecked(&self) -> u16 {
-        getter_be!(self, id, u16)
+    pub fn id(&self) -> u16 {
+        unsafe { getter_be!(self, id, u16) }
     }
 
     /// Sets the identification field for ICMP Echo/Timestamp/Info/Mask messages.
-    /// Only valid for ICMP Types: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38.
-    ///
-    /// # Safety
-    /// Caller must ensure that the ICMP type is one of: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38
-    /// before calling this function. Accessing the echo fields with other ICMP types may result
-    /// in undefined behavior.
     #[inline]
-    unsafe fn set_id_unchecked(&mut self, id: u16) {
-        setter_be!(self, id, id)
+    pub fn set_id(&mut self, id: u16) {
+        unsafe { setter_be!(self, id, id) }
     }
 
     /// Returns the sequence number from ICMP Echo/Timestamp/Info/Mask messages.
-    /// Only valid for ICMP Types: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38.
-    ///
-    /// # Safety
-    /// Caller must ensure that the ICMP type is one of: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38
-    /// before calling this function. Accessing the echo fields with other ICMP types may result
-    /// in undefined behavior.
     #[inline]
-    unsafe fn sequence_unchecked(&self) -> u16 {
-        getter_be!(self, sequence, u16)
+    pub fn sequence(&self) -> u16 {
+        unsafe { getter_be!(self, sequence, u16) }
     }
 
     /// Sets the sequence number for ICMP Echo/Timestamp/Info/Mask messages.
@@ -527,8 +348,30 @@ impl IcmpEcho {
     /// before calling this function. Accessing the echo fields with other ICMP types may result
     /// in undefined behavior.
     #[inline]
-    unsafe fn set_sequence_unchecked(&mut self, sequence: u16) {
-        setter_be!(self, sequence, sequence)
+    pub fn set_sequence(&mut self, sequence: u16) {
+        unsafe { setter_be!(self, sequence, sequence) }
+    }
+}
+
+/// Represents the payload of an ICMP Redirect message (Type 5).
+/// The four bytes encode the gateway internet address in network byte order.
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
+pub struct IcmpRedirect {
+    gateway: [u8; 4],
+}
+
+impl IcmpRedirect {
+    #[inline]
+    pub fn gateway_address(&self) -> net::Ipv4Addr {
+        net::Ipv4Addr::from(self.gateway)
+    }
+
+    #[inline]
+    pub fn set_gateway_address(&mut self, addr: net::Ipv4Addr) {
+        self.gateway = addr.octets();
     }
 }
 
@@ -551,13 +394,13 @@ impl IcmpDstUnreachable {
     /// Caller must ensure ICMP type is 3 (Destination Unreachable) before calling this function.
     /// Accessing the dst_unreachable field with other ICMP types may result in undefined behavior.
     #[inline]
-    unsafe fn mtu_unchecked(&self) -> u16 {
-        getter_be!(self, mtu, u16)
+    pub fn mtu(&self) -> u16 {
+        unsafe { getter_be!(self, mtu, u16) }
     }
 
     #[inline]
-    unsafe fn set_mtu_unchecked(&mut self, mtu: u16) {
-        setter_be!(self, mtu, mtu)
+    pub fn set_mtu(&mut self, mtu: u16) {
+        unsafe { setter_be!(self, mtu, mtu) }
     }
 }
 
@@ -570,6 +413,18 @@ impl IcmpDstUnreachable {
 pub struct IcmpParamProblem {
     pub pointer: u8,
     pub _unused: [u8; 3], // To make up 4 bytes
+}
+
+impl IcmpParamProblem {
+    #[inline]
+    pub fn pointer(&self) -> u8 {
+        self.pointer
+    }
+
+    #[inline]
+    pub fn set_pointer(&mut self, pointer: u8) {
+        self.pointer = pointer;
+    }
 }
 
 /// For ICMP Type 40 (PHOTURIS) Message (RFC 2521)
@@ -586,23 +441,23 @@ pub struct IcmpHdrPhoturis {
 
 impl IcmpHdrPhoturis {
     #[inline]
-    unsafe fn reserved_spi_unchecked(&self) -> u16 {
-        getter_be!(self, reserved_spi, u16)
+    pub fn reserved_spi(&self) -> u16 {
+        unsafe { getter_be!(self, reserved_spi, u16) }
     }
 
     #[inline]
-    unsafe fn set_reserved_spi_unckecked(&mut self, spi: u16) {
-        setter_be!(self, reserved_spi, spi)
+    pub fn set_reserved_spi(&mut self, spi: u16) {
+        unsafe { setter_be!(self, reserved_spi, spi) }
     }
 
     #[inline]
-    unsafe fn pointer_unchecked(&self) -> u16 {
-        getter_be!(self, pointer, u16)
+    pub fn pointer(&self) -> u16 {
+        unsafe { getter_be!(self, pointer, u16) }
     }
 
     #[inline]
-    unsafe fn set_pointer_unchecked(&mut self, pointer: u16) {
-        setter_be!(self, pointer, pointer)
+    pub fn set_pointer(&mut self, pointer: u16) {
+        unsafe { setter_be!(self, pointer, pointer) }
     }
 }
 
@@ -627,8 +482,8 @@ impl IcmpTraceroute {
     /// Caller must ensure ICMP type is 30 (Traceroute Request) or 31 (Traceroute Reply) before calling
     /// this function. Accessing the traceroute field with other ICMP types may result in undefined behavior.
     #[inline]
-    unsafe fn id_unchecked(&self) -> u16 {
-        getter_be!(self, id, u16)
+    pub fn id(&self) -> u16 {
+        unsafe { getter_be!(self, id, u16) }
     }
 
     /// Sets the ID Number field for a Traceroute message (Type 30).
@@ -638,8 +493,8 @@ impl IcmpTraceroute {
     /// Caller must ensure ICMP type is 30 (Traceroute Request) or 31 (Traceroute Reply) before calling
     /// this function. Accessing the traceroute field with other ICMP types may result in undefined behavior.
     #[inline]
-    unsafe fn set_id_unchecked(&mut self, id: u16) {
-        setter_be!(self, id, id)
+    pub fn set_id(&mut self, id: u16) {
+        unsafe { setter_be!(self, id, id) }
     }
 }
 
@@ -650,65 +505,34 @@ impl IcmpTraceroute {
 ///
 /// # Example
 /// ```no_run,rust,standalone_crate
-/// use core::mem;
 /// use aya_ebpf::programs::TcContext;
 /// use network_types::eth::EthHdr;
-/// use network_types::icmp::{IcmpHdr, IcmpTimestampMsgPart};
+/// use network_types::icmp::{IcmpHdr, IcmpHdrMessage, IcmpTimestampMsgPart};
 /// use network_types::ip::Ipv4Hdr;
-/// // Assuming aya_log_ebpf is available for logging, as per project dependencies.
-/// // If not, remove or adapt the log lines.
-/// // use aya_log_ebpf::{info, warn};
 ///
-///
-/// // This is an adaptation of the example code provided in the doc comment
-/// // for IcmpTimestampMsgPart, corrected to resolve the E0599 error.
-/// // The actual code at src/icmp.rs:355 likely follows this pattern.
 /// fn handle_icmp_timestamp(ctx: &TcContext) -> Result<u32, ()> {
 ///     // Parse the ICMP header from start of payload
 ///     let icmp_start = ctx.data() + EthHdr::LEN + Ipv4Hdr::LEN;
+///     let icmp: *mut IcmpHdr = icmp_start as *mut IcmpHdr;
 ///
-///     // Boundary check: Ensure icmp_start is within packet bounds
-///     // This check is simplified; a real check would involve ctx.data_end().
-///     if icmp_start + IcmpHdr::LEN > ctx.data_end() {
-///         // warn!(ctx, "ICMP header out of bounds");
-///         return Err(());
-///     }
-///     let icmp: *const IcmpHdr = icmp_start as *const IcmpHdr;
+///     if let Some(icmp_hdr) = unsafe { icmp.as_mut() } {
+///         if let Ok(IcmpHdrMessage::Echo(echo_hdr)) = icmp_hdr.message() {
+///             // Timestamp request/reply share the same echo layout; ensure the type matches
+///             if matches!(icmp_hdr.type_, 13 | 14) {
+///                 let timestamps_ptr_location = icmp_start + IcmpHdr::LEN;
+///                 let timestamps_ptr: *const IcmpTimestampMsgPart =
+///                     timestamps_ptr_location as *const IcmpTimestampMsgPart;
 ///
-///     // Check if it's a Timestamp message (type 13 or 14)
-///     // Reading from a raw pointer is unsafe.
-///     if unsafe { (*icmp).type_ } == 13 || unsafe { (*icmp).type_ } == 14 {
-///         // Calculate pointer to the timestamp part
-///         let timestamps_ptr_location = icmp_start + IcmpHdr::LEN;
-///
-///         // Boundary check: Ensure IcmpTimestampMsgPart is within packet bounds
-///         if timestamps_ptr_location + IcmpTimestampMsgPart::LEN > ctx.data_end() {
-///             // warn!(ctx, "ICMP timestamp message part out of bounds");
-///             return Err(());
-///         }
-///
-///         let timestamps_ptr: *const IcmpTimestampMsgPart = timestamps_ptr_location as *const IcmpTimestampMsgPart;
-///
-///         // Safely dereference the pointer to get a reference
-///         match unsafe { timestamps_ptr.as_ref() } {
-///             Some(timestamps_ref) => {
-///                 // Now you can read the timestamps in network byte order
-///                 let orig = timestamps_ref.originate_timestamp();
-///                 let recv = timestamps_ref.receive_timestamp();
-///                 let xmit = timestamps_ref.transmit_timestamp();
-///
-///                 // You can now use orig, recv, and xmit. For example, log them:
-///                 // info!(ctx, "ICMP Timestamps: O={}, R={}, T={}", orig, recv, xmit);
-///
-///                 // Placeholder for further processing:
-///                 // For example, return one of the timestamps or 0 for success.
-///             }
-///             None => {
-///                 // This case implies timestamps_ptr was null.
-///                 // While less common if pointer arithmetic is correct and data_end checks pass,
-///                 // it's good practice to handle it.
-///                 // warn!(ctx, "Failed to get reference to ICMP timestamps: pointer was null");
-///                 return Err(());
+///                 if let Some(timestamps_ref) = unsafe { timestamps_ptr.as_ref() } {
+///                     let _id = echo_hdr.id();
+///                     let _sequence = echo_hdr.sequence();
+///                     let _orig = timestamps_ref.originate_timestamp();
+///                     let _recv = timestamps_ref.receive_timestamp();
+///                     let _xmit = timestamps_ref.transmit_timestamp();
+///                     // Use the timestamp fields as needed.
+///                 } else {
+///                     return Err(()); // Out of bounds or malformed packet.
+///                 }
 ///             }
 ///         }
 ///     }
@@ -778,46 +602,33 @@ impl IcmpTimestampMsgPart {
 /// use core::mem;
 /// use aya_ebpf::programs::TcContext;
 /// use network_types::eth::EthHdr;
-/// use network_types::icmp::{IcmpHdr, IcmpTracerouteMsgPart};
+/// use network_types::icmp::{IcmpHdr, IcmpHdrMessage, IcmpTracerouteMsgPart};
 /// use network_types::ip::Ipv4Hdr;
 ///
 /// fn handle_icmp_traceroute(ctx: &TcContext) -> Result<u32, ()> {
 ///     // Parse the ICMP header from start of payload
 ///     let icmp_start = ctx.data() + EthHdr::LEN + Ipv4Hdr::LEN;
-///     let icmp: *const IcmpHdr = icmp_start as *const IcmpHdr;
+///     let icmp: *mut IcmpHdr = icmp_start as *mut IcmpHdr;
 ///
-///     // Check if it's a Traceroute message (type 30)
-///     // Ensure 'icmp' is within bounds before dereferencing.
-///     // if (icmp as *const u8).add(IcmpHdr::LEN) > ctx.data_end() { return Err(()); }
-///     if unsafe { (*icmp).type_ } == 30 {
-///         // Access the traceroute part that follows the header
-///         let traceroute_ptr: *const IcmpTracerouteMsgPart = unsafe {
-///             (icmp_start as *const u8)
-///                 .add(IcmpHdr::LEN) as *const IcmpTracerouteMsgPart
-///         };
+///     // Check if it's a Traceroute Request/Reply message by matching on the safe enum.
+///     if let Some(icmp_hdr) = unsafe { icmp.as_mut() } {
+///         if let Ok(IcmpHdrMessage::Traceroute(traceroute_hdr)) = icmp_hdr.message() {
+///             // Access the traceroute-specific fields without repeating the type checks.
+///             let traceroute_ptr: *const IcmpTracerouteMsgPart = unsafe {
+///                 (icmp_start as *const u8)
+///                     .add(IcmpHdr::LEN) as *const IcmpTracerouteMsgPart
+///             };
 ///
-///         // Before dereferencing traceroute_ptr, ensure it's within packet bounds.
-///         // For example:
-///         // if (traceroute_ptr as *const u8).add(IcmpTracerouteMsgPart::LEN) > ctx.data_end() {
-///         //     aya_log_ebpf::error!(ctx, "Traceroute part out of bounds");
-///         //     return Err(());
-///         // }
-///
-///         // Safely get a reference to IcmpTracerouteMsgPart
-///         if let Some(traceroute_ref) = unsafe { traceroute_ptr.as_ref() } {
-///             // Now you can read the traceroute fields in network byte order
-///             let hops_out = traceroute_ref.hops_out();
-///             let bandwidth = traceroute_ref.bandwidth_out();
-///             let mtu = traceroute_ref.mtu_out();
-///
-///             // You can now use hops_out, bandwidth, mtu
-///             // For example, in a real eBPF program, you might log them or store them in a map.
-///             // aya_log_ebpf::info!(ctx, "Hops: {}, BW: {}, MTU: {}", hops_out, bandwidth, mtu);
-///         } else {
-///             // Handle the case where traceroute_ptr is null or misaligned.
-///             // This indicates an issue, possibly a malformed packet.
-///             // aya_log_ebpf::error!(ctx, "Failed to get reference to IcmpTracerouteMsgPart: pointer invalid");
-///             return Err(()); // Or other appropriate error handling
+///             if let Some(traceroute_ref) = unsafe { traceroute_ptr.as_ref() } {
+///                 // Consume the traceroute fields in network byte order
+///                 let _id = traceroute_hdr.id();
+///                 let _hops_out = traceroute_ref.hops_out();
+///                 let _bandwidth = traceroute_ref.bandwidth_out();
+///                 let _mtu = traceroute_ref.mtu_out();
+///                 // Do something meaningful with these values here.
+///             } else {
+///                 return Err(()); // Malformed packet or insufficient bounds
+///             }
 ///         }
 ///     }
 ///     Ok(0)
@@ -919,57 +730,7 @@ pub struct IcmpV6Hdr {
     pub type_: u8,
     pub code: u8,
     pub check: [u8; 2],
-    pub data: IcmpV6DataUn,
-}
-
-/// Union holding the variable 4-byte field after the first 4 bytes of an ICMPv6 header.
-/// The meaning of this field depends on the ICMPv6 type:
-/// - `echo`: Used for Echo Request/Reply messages (Types: 128, 129)
-/// - `packet_too_big_mtu`: Used in Packet Too Big messages (Type 2) to indicate next-hop MTU
-/// - `param_problem_pointer`: Used in Parameter Problem messages (Type 4) to point to error location
-/// - `reserved`: Generic 4-byte field for unused/reserved data in other message types,
-///   including the reserved field of Redirect messages (Type 137)
-#[repr(C, packed)]
-#[derive(Copy, Clone)]
-pub union IcmpV6DataUn {
-    pub echo: IcmpEcho,
-    pub packet_too_big_mtu: [u8; 4],
-    pub param_problem_pointer: [u8; 4],
-    pub reserved: [u8; 4],
-}
-
-impl IcmpV6DataUn {
-    #[inline]
-    unsafe fn mtu_unchecked(&self) -> u32 {
-        getter_be!(self, packet_too_big_mtu, u32)
-    }
-
-    #[inline]
-    unsafe fn set_mtu_unchecked(&mut self, mtu: u32) {
-        setter_be!(self, packet_too_big_mtu, mtu)
-    }
-
-    #[inline]
-    unsafe fn pointer_unchecked(&self) -> u32 {
-        getter_be!(self, param_problem_pointer, u32)
-    }
-
-    #[inline]
-    unsafe fn set_pointer_unchecked(&mut self, pointer: u32) {
-        setter_be!(self, param_problem_pointer, pointer)
-    }
-}
-
-impl core::fmt::Debug for IcmpV6DataUn {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        // Safe approach: just show the raw 4 bytes
-        let bytes = unsafe { self.reserved };
-        write!(
-            f,
-            "IcmpV6DataUn([{:#04x}, {:#04x}, {:#04x}, {:#04x}])",
-            bytes[0], bytes[1], bytes[2], bytes[3]
-        )
-    }
+    pub data: [u8; 4],
 }
 
 /// Full ICMPv6 Redirect message as defined in RFC 4443 section 4.5.
@@ -1049,165 +810,156 @@ impl IcmpV6Hdr {
         unsafe { setter_be!(self, check, checksum) }
     }
 
+    #[inline]
+    fn check_echo(&self) -> Result<(), IcmpError> {
+        if matches!(self.type_, 128 | 129) {
+            Ok(())
+        } else {
+            Err(IcmpError::InvalidIcmpType)
+        }
+    }
+
+    #[inline]
+    pub fn echo(&self) -> Result<&IcmpEcho, IcmpError> {
+        self.check_echo().map(|_| {
+            // SAFETY: We verified the ICMPv6 type before reinterpreting the bytes.
+            unsafe { self.echo_unchecked() }
+        })
+    }
+
+    #[inline]
+    pub fn echo_mut(&mut self) -> Result<&mut IcmpEcho, IcmpError> {
+        self.check_echo().map(|_| {
+            // SAFETY: We verified the ICMPv6 type before reinterpreting the bytes.
+            unsafe { self.echo_mut_unchecked() }
+        })
+    }
+
     /// Returns the identification field from ICMPv6 Echo Request/Reply messages.
     /// Only valid for ICMPv6 Types: 128 (Echo Request), 129 (Echo Reply).
     #[inline]
     pub fn echo_id(&self) -> Result<u16, IcmpError> {
-        if !matches!(self.type_, 128 | 129) {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        Ok(unsafe { self.echo_id_unchecked() })
+        self.echo().map(|echo| echo.id())
     }
 
     /// Sets the identification field for ICMPv6 Echo Request/Reply messages.
     /// Only valid for ICMPv6 Types: 128 (Echo Request), 129 (Echo Reply).
     #[inline]
     pub fn set_echo_id(&mut self, id: u16) -> Result<(), IcmpError> {
-        if !matches!(self.type_, 128 | 129) {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        unsafe {
-            self.set_echo_id_unchecked(id);
-        }
-        Ok(())
+        self.echo_mut().map(|echo| echo.set_id(id))
     }
 
     /// Returns the sequence number from ICMPv6 Echo Request/Reply messages.
     /// Only valid for ICMPv6 Types: 128 (Echo Request), 129 (Echo Reply).
     #[inline]
     pub fn echo_sequence(&self) -> Result<u16, IcmpError> {
-        if !matches!(self.type_, 128 | 129) {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        Ok(unsafe { self.echo_sequence_unchecked() })
+        self.echo().map(|echo| echo.sequence())
     }
 
     /// Sets the sequence number for ICMPv6 Echo Request/Reply messages.
     /// Only valid for ICMPv6 Types: 128 (Echo Request), 129 (Echo Reply).
     #[inline]
     pub fn set_echo_sequence(&mut self, sequence: u16) -> Result<(), IcmpError> {
-        if !matches!(self.type_, 128 | 129) {
-            return Err(IcmpError::InvalidIcmpType);
+        self.echo_mut().map(|echo| echo.set_sequence(sequence))
+    }
+
+    #[inline]
+    fn check_packet_too_big(&self) -> Result<(), IcmpError> {
+        if self.type_ == 2 {
+            Ok(())
+        } else {
+            Err(IcmpError::InvalidIcmpType)
         }
-        unsafe {
-            self.set_echo_sequence_unchecked(sequence);
-        }
-        Ok(())
     }
 
     /// Returns the MTU field from an ICMPv6 Packet Too Big message (Type 2).
     /// This value indicates the maximum packet size that can be handled by the next hop.
     #[inline]
     pub fn mtu(&self) -> Result<u32, IcmpError> {
-        if self.type_ != 2 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        Ok(unsafe { self.mtu_unchecked() })
+        self.check_packet_too_big()
+            .map(|_| unsafe { self.mtu_unchecked() })
     }
 
     /// Sets the MTU field for an ICMPv6 Packet Too Big message (Type 2).
     /// This should be set to the maximum packet size that can be handled by the next hop.
     #[inline]
     pub fn set_mtu(&mut self, mtu: u32) -> Result<(), IcmpError> {
-        if self.type_ != 2 {
-            return Err(IcmpError::InvalidIcmpType);
+        self.check_packet_too_big()
+            .map(|_| unsafe { self.set_mtu_unchecked(mtu) })
+    }
+
+    #[inline]
+    fn check_parameter_problem(&self) -> Result<(), IcmpError> {
+        if self.type_ == 4 {
+            Ok(())
+        } else {
+            Err(IcmpError::InvalidIcmpType)
         }
-        unsafe {
-            self.set_mtu_unchecked(mtu);
-        }
-        Ok(())
     }
 
     /// Returns the pointer field from an ICMPv6 Parameter Problem message (Type 4).
     /// The pointer indicates the offset within the invoking packet where the error was detected.
     #[inline]
     pub fn pointer(&self) -> Result<u32, IcmpError> {
-        if self.type_ != 4 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        Ok(unsafe { self.pointer_unchecked() })
+        self.check_parameter_problem()
+            .map(|_| unsafe { self.pointer_unchecked() })
     }
 
     /// Sets the pointer field for an ICMPv6 Parameter Problem message (Type 4).
     /// The pointer should indicate the offset within the invoking packet where the error was detected.
     #[inline]
     pub fn set_pointer(&mut self, pointer: u32) -> Result<(), IcmpError> {
-        if self.type_ != 4 {
-            return Err(IcmpError::InvalidIcmpType);
+        self.check_parameter_problem()
+            .map(|_| unsafe { self.set_pointer_unchecked(pointer) })
+    }
+
+    #[inline]
+    fn check_redirect(&self) -> Result<(), IcmpError> {
+        if self.type_ == 137 {
+            Ok(())
+        } else {
+            Err(IcmpError::InvalidIcmpType)
         }
-        unsafe {
-            self.set_pointer_unchecked(pointer);
-        }
-        Ok(())
     }
 
     /// Returns the 4-byte reserved field from an ICMPv6 Redirect message (Type 137).
     /// This field is currently unused and MUST be initialized to zeros by the sender.
     #[inline]
     pub fn redirect_reserved(&self) -> Result<[u8; 4], IcmpError> {
-        if self.type_ != 137 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        Ok(unsafe { self.redirect_reserved_unchecked() })
+        self.check_redirect()
+            .map(|_| unsafe { self.redirect_reserved_unchecked() })
     }
 
     /// Sets the 4-byte reserved field for an ICMPv6 Redirect message (Type 137).
     /// This field is currently unused and MUST be set to zeros.
     #[inline]
     pub fn set_redirect_reserved(&mut self, reserved: [u8; 4]) -> Result<(), IcmpError> {
-        if self.type_ != 137 {
-            return Err(IcmpError::InvalidIcmpType);
-        }
-        unsafe {
-            self.set_redirect_reserved_unchecked(reserved);
-        }
-        Ok(())
+        self.check_redirect()
+            .map(|_| unsafe { self.set_redirect_reserved_unchecked(reserved) })
     }
 }
 
 impl IcmpV6Hdr {
-    /// Returns the identification field from ICMPv6 Echo Request/Reply messages.
-    /// Only valid for ICMPv6 Types: 128 (Echo Request), 129 (Echo Reply).
+    /// Returns a reference to the ICMPv6 Echo Request/Reply data.
     ///
     /// # Safety
-    /// Caller must ensure ICMPv6 type is 128 (Echo Request) or 129 (Echo Reply) before calling.
-    /// Accessing echo fields with other types may result in undefined behavior.
+    /// Caller must ensure ICMPv6 type is 128 (Echo Request) or 129 (Echo Reply) before calling
+    /// this function. Accessing the echo fields with other ICMPv6 types may result in undefined
+    /// behavior.
     #[inline]
-    pub unsafe fn echo_id_unchecked(&self) -> u16 {
-        self.data.echo.id_unchecked()
+    pub unsafe fn echo_unchecked(&self) -> &IcmpEcho {
+        &*self.data.as_ptr().cast()
     }
 
-    /// Sets the identification field for ICMPv6 Echo Request/Reply messages.
-    /// Only valid for ICMPv6 Types: 128 (Echo Request), 129 (Echo Reply).
+    /// Returns a mutable reference to the ICMPv6 Echo Request/Reply data.
     ///
     /// # Safety
-    /// Caller must ensure ICMPv6 type is 128 (Echo Request) or 129 (Echo Reply) before calling.
-    /// Accessing echo fields with other types may result in undefined behavior.
+    /// Caller must ensure ICMPv6 type is 128 (Echo Request) or 129 (Echo Reply) before calling
+    /// this function. Accessing the echo fields with other ICMPv6 types may result in undefined
+    /// behavior.
     #[inline]
-    pub unsafe fn set_echo_id_unchecked(&mut self, id: u16) {
-        self.data.echo.set_id_unchecked(id);
-    }
-
-    /// Returns the sequence number from ICMPv6 Echo Request/Reply messages.
-    /// Only valid for ICMPv6 Types: 128 (Echo Request), 129 (Echo Reply).
-    ///
-    /// # Safety
-    /// Caller must ensure ICMPv6 type is 128 (Echo Request) or 129 (Echo Reply) before calling.
-    /// Accessing echo fields with other types may result in undefined behavior.
-    #[inline]
-    pub unsafe fn echo_sequence_unchecked(&self) -> u16 {
-        self.data.echo.sequence_unchecked()
-    }
-
-    /// Sets the sequence number for ICMPv6 Echo Request/Reply messages.
-    /// Only valid for ICMPv6 Types: 128 (Echo Request), 129 (Echo Reply).
-    ///
-    /// # Safety
-    /// Caller must ensure ICMPv6 type is 128 (Echo Request) or 129 (Echo Reply) before calling.
-    /// Accessing echo fields with other types may result in undefined behavior.
-    #[inline]
-    pub unsafe fn set_echo_sequence_unchecked(&mut self, sequence: u16) {
-        self.data.echo.set_sequence_unchecked(sequence);
+    pub unsafe fn echo_mut_unchecked(&mut self) -> &mut IcmpEcho {
+        &mut *self.data.as_mut_ptr().cast()
     }
 
     /// Returns the MTU field from an ICMPv6 Packet Too Big message (Type 2).
@@ -1218,7 +970,7 @@ impl IcmpV6Hdr {
     /// Accessing MTU field with other types may result in undefined behavior.
     #[inline]
     pub unsafe fn mtu_unchecked(&self) -> u32 {
-        self.data.mtu_unchecked()
+        u32::from_be_bytes(self.data)
     }
 
     /// Sets the MTU field for an ICMPv6 Packet Too Big message (Type 2).
@@ -1229,7 +981,7 @@ impl IcmpV6Hdr {
     /// Accessing MTU field with other types may result in undefined behavior.
     #[inline]
     pub unsafe fn set_mtu_unchecked(&mut self, mtu: u32) {
-        self.data.set_mtu_unchecked(mtu);
+        self.data = mtu.to_be_bytes();
     }
 
     /// Returns the pointer field from an ICMPv6 Parameter Problem message (Type 4).
@@ -1240,7 +992,7 @@ impl IcmpV6Hdr {
     /// Accessing pointer field with other types may result in undefined behavior.
     #[inline]
     pub unsafe fn pointer_unchecked(&self) -> u32 {
-        self.data.pointer_unchecked()
+        u32::from_be_bytes(self.data)
     }
 
     /// Sets the pointer field for an ICMPv6 Parameter Problem message (Type 4).
@@ -1251,7 +1003,7 @@ impl IcmpV6Hdr {
     /// Accessing pointer field with other types may result in undefined behavior.
     #[inline]
     pub unsafe fn set_pointer_unchecked(&mut self, pointer: u32) {
-        self.data.set_pointer_unchecked(pointer);
+        self.data = pointer.to_be_bytes();
     }
 
     /// Returns the 4-byte reserved field from an ICMPv6 Redirect message (Type 137).
@@ -1262,7 +1014,7 @@ impl IcmpV6Hdr {
     /// Accessing redirect fields with other types may result in undefined behavior.
     #[inline]
     pub unsafe fn redirect_reserved_unchecked(&self) -> [u8; 4] {
-        self.data.reserved
+        self.data
     }
 
     /// Sets the 4-byte reserved field for an ICMPv6 Redirect message (Type 137).
@@ -1273,53 +1025,7 @@ impl IcmpV6Hdr {
     /// Accessing redirect fields with other types may result in undefined behavior.
     #[inline]
     pub unsafe fn set_redirect_reserved_unchecked(&mut self, reserved: [u8; 4]) {
-        self.data.reserved = reserved;
-    }
-}
-
-#[cfg(feature = "serde")]
-mod serde_impl {
-    use super::{IcmpDataUn, IcmpV6DataUn};
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    impl Serialize for IcmpDataUn {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            let bytes = unsafe { self.reserved };
-            <[u8; 4]>::serialize(&bytes, serializer)
-        }
-    }
-
-    impl<'de> Deserialize<'de> for IcmpDataUn {
-        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            let bytes = <[u8; 4]>::deserialize(deserializer)?;
-            Ok(IcmpDataUn { reserved: bytes })
-        }
-    }
-
-    impl Serialize for IcmpV6DataUn {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            let bytes = unsafe { self.reserved };
-            <[u8; 4]>::serialize(&bytes, serializer)
-        }
-    }
-
-    impl<'de> Deserialize<'de> for IcmpV6DataUn {
-        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            let bytes = <[u8; 4]>::deserialize(deserializer)?;
-            Ok(IcmpV6DataUn { reserved: bytes })
-        }
+        self.data = reserved;
     }
 }
 
@@ -1328,6 +1034,24 @@ mod tests {
     use super::*;
     use core::mem;
     use core::net::Ipv4Addr;
+
+    macro_rules! expect_message {
+        ($hdr:expr, $variant:ident) => {{
+            match $hdr.message().expect("invalid ICMP message") {
+                IcmpHdrMessage::$variant(value) => value,
+                _ => panic!("expected {} message", stringify!($variant)),
+            }
+        }};
+    }
+
+    macro_rules! expect_message_mut {
+        ($hdr:expr, $variant:ident) => {{
+            match $hdr.message_mut().expect("invalid ICMP message") {
+                IcmpHdrMessageMut::$variant(value) => value,
+                _ => panic!("expected {} message", stringify!($variant)),
+            }
+        }};
+    }
 
     #[test]
     fn test_icmp_hdr_size() {
@@ -1342,9 +1066,7 @@ mod tests {
             type_: 0,
             code: 0,
             check: [0, 0],
-            data: IcmpDataUn {
-                reserved: [0, 0, 0, 0],
-            },
+            data: [0, 0, 0, 0],
         }
     }
 
@@ -1374,23 +1096,19 @@ mod tests {
 
         // Test echo ID
         let test_id: u16 = 0x4321;
-        hdr.set_echo_id(test_id).unwrap();
-        assert_eq!(hdr.echo_id().unwrap(), test_id);
+        expect_message_mut!(&mut hdr, Echo).set_id(test_id);
+        assert_eq!(expect_message!(&hdr, Echo).id(), test_id);
 
         // Verify byte order in raw storage
-        unsafe {
-            assert_eq!(hdr.data.echo.id, test_id.to_be_bytes());
-        }
+        assert_eq!(hdr.data[..2], test_id.to_be_bytes());
 
         // Test echo sequence
         let test_seq: u16 = 0x8765;
-        hdr.set_echo_sequence(test_seq).unwrap();
-        assert_eq!(hdr.echo_sequence().unwrap(), test_seq);
+        expect_message_mut!(&mut hdr, Echo).set_sequence(test_seq);
+        assert_eq!(expect_message!(&hdr, Echo).sequence(), test_seq);
 
         // Verify byte order in raw storage
-        unsafe {
-            assert_eq!(hdr.data.echo.sequence, test_seq.to_be_bytes());
-        }
+        assert_eq!(hdr.data[2..], test_seq.to_be_bytes());
     }
 
     #[test]
@@ -1400,13 +1118,45 @@ mod tests {
         hdr.type_ = 5;
         let test_addr = Ipv4Addr::new(192, 168, 1, 1);
 
-        hdr.set_gateway_address(test_addr).unwrap();
-        assert_eq!(hdr.gateway_address().unwrap(), test_addr);
+        expect_message_mut!(&mut hdr, Redirect).set_gateway_address(test_addr);
+        assert_eq!(expect_message!(&hdr, Redirect).gateway_address(), test_addr);
 
         // Verify the raw bytes
-        unsafe {
-            assert_eq!(hdr.data.redirect, [192, 168, 1, 1]);
+        assert_eq!(hdr.data, [192, 168, 1, 1]);
+    }
+
+    #[test]
+    fn test_message_enum_echo() {
+        let mut hdr = create_test_icmp_hdr();
+        hdr.type_ = 8;
+
+        match hdr.message_mut().expect("echo view") {
+            IcmpHdrMessageMut::Echo(echo) => {
+                echo.set_id(0xABCD);
+                echo.set_sequence(0x1234);
+            }
+            _ => panic!("unexpected variant"),
         }
+
+        match hdr.message().expect("echo view") {
+            IcmpHdrMessage::Echo(echo) => {
+                assert_eq!(echo.id(), 0xABCD);
+                assert_eq!(echo.sequence(), 0x1234);
+            }
+            _ => panic!("unexpected variant"),
+        }
+    }
+
+    #[test]
+    fn test_message_enum_invalid_type() {
+        let hdr = IcmpHdr {
+            type_: 9,
+            code: 0,
+            check: [0, 0],
+            data: [0, 0, 0, 0],
+        };
+
+        assert!(hdr.message().is_err());
     }
 
     #[test]
@@ -1416,13 +1166,14 @@ mod tests {
         hdr.type_ = 3;
         let test_mtu: u16 = 1500;
 
-        hdr.set_next_hop_mtu(test_mtu).unwrap();
-        assert_eq!(hdr.next_hop_mtu().unwrap(), test_mtu);
+        expect_message_mut!(&mut hdr, DestinationUnreachable).set_mtu(test_mtu);
+        assert_eq!(
+            expect_message!(&hdr, DestinationUnreachable).mtu(),
+            test_mtu
+        );
 
         // Verify byte order in raw storage
-        unsafe {
-            assert_eq!(hdr.data.dst_unreachable.mtu, test_mtu.to_be_bytes());
-        }
+        assert_eq!(hdr.data[2..], test_mtu.to_be_bytes());
     }
 
     #[test]
@@ -1432,13 +1183,14 @@ mod tests {
         hdr.type_ = 12;
         let test_pointer: u8 = 42;
 
-        hdr.set_parameter_pointer(test_pointer).unwrap();
-        assert_eq!(hdr.parameter_pointer().unwrap(), test_pointer);
+        expect_message_mut!(&mut hdr, ParameterProblem).set_pointer(test_pointer);
+        assert_eq!(
+            expect_message!(&hdr, ParameterProblem).pointer(),
+            test_pointer
+        );
 
         // Verify the raw byte
-        unsafe {
-            assert_eq!(hdr.data.param_problem.pointer, test_pointer);
-        }
+        assert_eq!(hdr.data[0], test_pointer);
     }
 
     #[test]
@@ -1448,13 +1200,11 @@ mod tests {
         hdr.type_ = 30;
         let test_id: u16 = 0x9876;
 
-        hdr.set_traceroute_id(test_id).unwrap();
-        assert_eq!(hdr.traceroute_id().unwrap(), test_id);
+        expect_message_mut!(&mut hdr, Traceroute).set_id(test_id);
+        assert_eq!(expect_message!(&hdr, Traceroute).id(), test_id);
 
         // Verify byte order in raw storage
-        unsafe {
-            assert_eq!(hdr.data.traceroute.id, test_id.to_be_bytes());
-        }
+        assert_eq!(hdr.data[..2], test_id.to_be_bytes());
     }
 
     #[test]
@@ -1464,13 +1214,11 @@ mod tests {
         hdr.type_ = 40;
         let test_spi: u16 = 0xFEDC;
 
-        hdr.set_photuris_spi(test_spi).unwrap();
-        assert_eq!(hdr.photuris_spi().unwrap(), test_spi);
+        expect_message_mut!(&mut hdr, Photuris).set_reserved_spi(test_spi);
+        assert_eq!(expect_message!(&hdr, Photuris).reserved_spi(), test_spi);
 
         // Verify byte order in raw storage
-        unsafe {
-            assert_eq!(hdr.data.photuris.reserved_spi, test_spi.to_be_bytes());
-        }
+        assert_eq!(hdr.data[..2], test_spi.to_be_bytes());
     }
 
     #[test]
@@ -1480,13 +1228,11 @@ mod tests {
         hdr.type_ = 40;
         let test_pointer: u16 = 0x1A2B;
 
-        hdr.set_photuris_pointer(test_pointer).unwrap();
-        assert_eq!(hdr.photuris_pointer().unwrap(), test_pointer);
+        expect_message_mut!(&mut hdr, Photuris).set_pointer(test_pointer);
+        assert_eq!(expect_message!(&hdr, Photuris).pointer(), test_pointer);
 
         // Verify byte order in raw storage
-        unsafe {
-            assert_eq!(hdr.data.photuris.pointer, test_pointer.to_be_bytes());
-        }
+        assert_eq!(hdr.data[2..], test_pointer.to_be_bytes());
     }
 
     #[test]
@@ -1505,34 +1251,6 @@ mod tests {
         hdr.code = 1;
         assert_eq!(hdr.type_, 3);
         assert_eq!(hdr.code, 1);
-    }
-
-    #[test]
-    fn test_union_field_access_safety() {
-        // This test demonstrates that different union field accesses
-        // manipulate the same memory
-        let mut hdr = create_test_icmp_hdr();
-
-        // Set type to Echo Reply (0) which is valid for echo_id
-        hdr.type_ = 0;
-
-        // Set echo ID and verify the memory is shared with redirect
-        hdr.set_echo_id(0xABCD).unwrap();
-
-        unsafe {
-            assert_eq!(hdr.data.redirect[0], 0xAB);
-            assert_eq!(hdr.data.redirect[1], 0xCD);
-        }
-
-        // Set type to Redirect (5) which is valid for gateway_address
-        hdr.type_ = 5;
-
-        // Set gateway address and verify it affects the echo ID
-        hdr.set_gateway_address(Ipv4Addr::new(1, 2, 3, 4)).unwrap();
-
-        // Set type back to Echo Reply (0) to check echo_id
-        hdr.type_ = 0;
-        assert_eq!(hdr.echo_id().unwrap(), 0x0102); // First two bytes of the IP address
     }
 
     #[test]
@@ -1582,14 +1300,16 @@ mod tests {
         hdr.set_checksum(0); // Would be calculated later based on the entire message
 
         // Echo Request (type 8) is valid for echo_id and echo_sequence
-        hdr.set_echo_id(0x1234).unwrap();
-        hdr.set_echo_sequence(0x5678).unwrap();
+        let echo = expect_message_mut!(&mut hdr, Echo);
+        echo.set_id(0x1234);
+        echo.set_sequence(0x5678);
 
         assert_eq!(hdr.type_, 8);
         assert_eq!(hdr.code, 0);
         assert_eq!(hdr.checksum(), 0);
-        assert_eq!(hdr.echo_id().unwrap(), 0x1234);
-        assert_eq!(hdr.echo_sequence().unwrap(), 0x5678);
+        let echo = expect_message!(&hdr, Echo);
+        assert_eq!(echo.id(), 0x1234);
+        assert_eq!(echo.sequence(), 0x5678);
     }
 
     #[test]
@@ -1602,12 +1322,12 @@ mod tests {
         hdr.set_checksum(0); // Would be calculated later
 
         // Destination Unreachable (type 3) is valid for next_hop_mtu
-        hdr.set_next_hop_mtu(1400).unwrap(); // Example MTU value
+        expect_message_mut!(&mut hdr, DestinationUnreachable).set_mtu(1400); // Example MTU value
 
         assert_eq!(hdr.type_, 3);
         assert_eq!(hdr.code, 4);
         assert_eq!(hdr.checksum(), 0);
-        assert_eq!(hdr.next_hop_mtu().unwrap(), 1400);
+        assert_eq!(expect_message!(&hdr, DestinationUnreachable).mtu(), 1400);
     }
 
     #[test]
@@ -1620,12 +1340,12 @@ mod tests {
         hdr.set_checksum(0); // Would be calculated later
 
         // Parameter Problem (type 12) is valid for parameter_pointer
-        hdr.set_parameter_pointer(20).unwrap(); // Error at byte offset 20
+        expect_message_mut!(&mut hdr, ParameterProblem).set_pointer(20); // Error at byte offset 20
 
         assert_eq!(hdr.type_, 12);
         assert_eq!(hdr.code, 0);
         assert_eq!(hdr.checksum(), 0);
-        assert_eq!(hdr.parameter_pointer().unwrap(), 20);
+        assert_eq!(expect_message!(&hdr, ParameterProblem).pointer(), 20);
     }
 
     #[test]
@@ -1637,13 +1357,15 @@ mod tests {
         hdr.code = 1; // Redirect for host
         hdr.set_checksum(0); // Would be calculated later
 
-        // Redirect (type 5) is valid for gateway_address
-        hdr.set_gateway_address(Ipv4Addr::new(10, 0, 0, 1)).unwrap(); // Gateway address
+        expect_message_mut!(&mut hdr, Redirect).set_gateway_address(Ipv4Addr::new(10, 0, 0, 1));
 
         assert_eq!(hdr.type_, 5);
         assert_eq!(hdr.code, 1);
         assert_eq!(hdr.checksum(), 0);
-        assert_eq!(hdr.gateway_address().unwrap(), Ipv4Addr::new(10, 0, 0, 1));
+        assert_eq!(
+            expect_message!(&hdr, Redirect).gateway_address(),
+            Ipv4Addr::new(10, 0, 0, 1)
+        );
     }
 
     #[test]
@@ -1933,9 +1655,7 @@ mod tests {
             type_: 0,
             code: 0,
             check: [0, 0],
-            data: IcmpV6DataUn {
-                reserved: [0, 0, 0, 0],
-            },
+            data: [0, 0, 0, 0],
         }
     }
 
@@ -1969,9 +1689,8 @@ mod tests {
         assert_eq!(hdr.echo_id().unwrap(), test_id);
 
         // Verify byte order in raw storage
-        unsafe {
-            assert_eq!(hdr.data.echo.id, test_id.to_be_bytes());
-        }
+        let test_id_bytes = test_id.to_be_bytes();
+        assert_eq!(&hdr.data[..2], &test_id_bytes);
 
         // Test echo sequence
         let test_seq: u16 = 0x8765;
@@ -1979,9 +1698,8 @@ mod tests {
         assert_eq!(hdr.echo_sequence().unwrap(), test_seq);
 
         // Verify byte order in raw storage
-        unsafe {
-            assert_eq!(hdr.data.echo.sequence, test_seq.to_be_bytes());
-        }
+        let test_seq_bytes = test_seq.to_be_bytes();
+        assert_eq!(&hdr.data[2..], &test_seq_bytes);
     }
 
     #[test]
@@ -1995,23 +1713,17 @@ mod tests {
         assert_eq!(hdr.mtu().unwrap(), test_mtu);
 
         // Verify byte order in raw storage
-        unsafe {
-            assert_eq!(hdr.data.packet_too_big_mtu, test_mtu.to_be_bytes());
-        }
+        assert_eq!(hdr.data, test_mtu.to_be_bytes());
 
         // Test with zero
         hdr.set_mtu(0).unwrap();
         assert_eq!(hdr.mtu().unwrap(), 0);
-        unsafe {
-            assert_eq!(hdr.data.packet_too_big_mtu, [0, 0, 0, 0]);
-        }
+        assert_eq!(hdr.data, [0, 0, 0, 0]);
 
         // Test with max value
         hdr.set_mtu(u32::MAX).unwrap();
         assert_eq!(hdr.mtu().unwrap(), u32::MAX);
-        unsafe {
-            assert_eq!(hdr.data.packet_too_big_mtu, [0xFF, 0xFF, 0xFF, 0xFF]);
-        }
+        assert_eq!(hdr.data, [0xFF, 0xFF, 0xFF, 0xFF]);
     }
 
     #[test]
@@ -2025,23 +1737,17 @@ mod tests {
         assert_eq!(hdr.pointer().unwrap(), test_pointer);
 
         // Verify byte order in raw storage
-        unsafe {
-            assert_eq!(hdr.data.param_problem_pointer, test_pointer.to_be_bytes());
-        }
+        assert_eq!(hdr.data, test_pointer.to_be_bytes());
 
         // Test with zero
         hdr.set_pointer(0).unwrap();
         assert_eq!(hdr.pointer().unwrap(), 0);
-        unsafe {
-            assert_eq!(hdr.data.param_problem_pointer, [0, 0, 0, 0]);
-        }
+        assert_eq!(hdr.data, [0, 0, 0, 0]);
 
         // Test with max value
         hdr.set_pointer(u32::MAX).unwrap();
         assert_eq!(hdr.pointer().unwrap(), u32::MAX);
-        unsafe {
-            assert_eq!(hdr.data.param_problem_pointer, [0xFF, 0xFF, 0xFF, 0xFF]);
-        }
+        assert_eq!(hdr.data, [0xFF, 0xFF, 0xFF, 0xFF]);
     }
 
     #[test]
@@ -2053,9 +1759,7 @@ mod tests {
                 type_: 137,
                 code: 0,
                 check: [0, 0],
-                data: IcmpV6DataUn {
-                    reserved: [0, 0, 0, 0],
-                },
+                data: [0, 0, 0, 0],
             },
             target_address: [0; 16],
             destination_address: [0; 16],
@@ -2211,8 +1915,15 @@ mod serde_prop_tests {
                 type_,
                 code,
                 check,
-                data: IcmpDataUn { reserved: data },
+                data,
             })
+    }
+
+    fn echo_bytes(id: [u8; 2], seq: [u8; 2]) -> [u8; 4] {
+        let mut bytes = [0u8; 4];
+        bytes[..2].copy_from_slice(&id);
+        bytes[2..].copy_from_slice(&seq);
+        bytes
     }
 
     fn icmpv6_hdr_strategy() -> impl Strategy<Value = IcmpV6Hdr> {
@@ -2227,9 +1938,7 @@ mod serde_prop_tests {
                 type_,
                 code,
                 check,
-                data: IcmpV6DataUn {
-                    echo: IcmpEcho { id, sequence: seq },
-                },
+                data: echo_bytes(id, seq),
             });
 
         let echo_reply = (
@@ -2243,9 +1952,7 @@ mod serde_prop_tests {
                 type_,
                 code,
                 check,
-                data: IcmpV6DataUn {
-                    echo: IcmpEcho { id, sequence: seq },
-                },
+                data: echo_bytes(id, seq),
             });
 
         let packet_too_big = (
@@ -2258,9 +1965,7 @@ mod serde_prop_tests {
                 type_,
                 code,
                 check,
-                data: IcmpV6DataUn {
-                    packet_too_big_mtu: bytes,
-                },
+                data: bytes,
             });
 
         let param_problem = (
@@ -2273,9 +1978,7 @@ mod serde_prop_tests {
                 type_,
                 code,
                 check,
-                data: IcmpV6DataUn {
-                    param_problem_pointer: bytes,
-                },
+                data: bytes,
             });
 
         let redirect = (
@@ -2288,7 +1991,7 @@ mod serde_prop_tests {
                 type_,
                 code,
                 check,
-                data: IcmpV6DataUn { reserved },
+                data: reserved,
             });
 
         let fallback = (
@@ -2303,7 +2006,7 @@ mod serde_prop_tests {
                 type_,
                 code,
                 check,
-                data: IcmpV6DataUn { reserved: bytes },
+                data: bytes,
             });
 
         prop_oneof![
@@ -2329,7 +2032,7 @@ mod serde_prop_tests {
                     type_: 137,
                     code,
                     check,
-                    data: IcmpV6DataUn { reserved },
+                    data: reserved,
                 },
                 target_address: target,
                 destination_address: dest,
@@ -2348,13 +2051,13 @@ mod serde_prop_tests {
             prop_assert_eq!(decoded.type_, hdr.type_);
             prop_assert_eq!(decoded.code, hdr.code);
             prop_assert_eq!(decoded.check, hdr.check);
-            unsafe { prop_assert_eq!(decoded.data.reserved, hdr.data.reserved); }
+            prop_assert_eq!(decoded.data, hdr.data);
 
             let decoded_cbor = round_trip_cbor(&hdr);
             prop_assert_eq!(decoded_cbor.type_, hdr.type_);
             prop_assert_eq!(decoded_cbor.code, hdr.code);
             prop_assert_eq!(decoded_cbor.check, hdr.check);
-            unsafe { prop_assert_eq!(decoded_cbor.data.reserved, hdr.data.reserved); }
+            prop_assert_eq!(decoded_cbor.data, hdr.data);
         }
 
         #[test]
@@ -2363,35 +2066,13 @@ mod serde_prop_tests {
             prop_assert_eq!(decoded.type_, hdr.type_);
             prop_assert_eq!(decoded.code, hdr.code);
             prop_assert_eq!(decoded.check, hdr.check);
+            prop_assert_eq!(decoded.data, hdr.data);
 
             let decoded_cbor = round_trip_cbor(&hdr);
             prop_assert_eq!(decoded_cbor.type_, hdr.type_);
             prop_assert_eq!(decoded_cbor.code, hdr.code);
             prop_assert_eq!(decoded_cbor.check, hdr.check);
-
-            match hdr.type_ {
-                128 | 129 => unsafe {
-                    prop_assert_eq!(decoded.data.echo.id, hdr.data.echo.id);
-                    prop_assert_eq!(decoded.data.echo.sequence, hdr.data.echo.sequence);
-                    prop_assert_eq!(decoded_cbor.data.echo.id, hdr.data.echo.id);
-                    prop_assert_eq!(decoded_cbor.data.echo.sequence, hdr.data.echo.sequence);
-                },
-                2 => unsafe {
-                    prop_assert_eq!(decoded.data.packet_too_big_mtu, hdr.data.packet_too_big_mtu);
-                    prop_assert_eq!(decoded_cbor.data.packet_too_big_mtu, hdr.data.packet_too_big_mtu);
-                },
-                4 => unsafe {
-                    prop_assert_eq!(decoded.data.param_problem_pointer, hdr.data.param_problem_pointer);
-                    prop_assert_eq!(
-                        decoded_cbor.data.param_problem_pointer,
-                        hdr.data.param_problem_pointer
-                    );
-                },
-                _ => unsafe {
-                    prop_assert_eq!(decoded.data.reserved, hdr.data.reserved);
-                    prop_assert_eq!(decoded_cbor.data.reserved, hdr.data.reserved);
-                },
-            }
+            prop_assert_eq!(decoded_cbor.data, hdr.data);
         }
 
         #[test]
@@ -2400,13 +2081,17 @@ mod serde_prop_tests {
             prop_assert_eq!(decoded.hdr.type_, msg.hdr.type_);
             prop_assert_eq!(decoded.hdr.code, msg.hdr.code);
             prop_assert_eq!(decoded.hdr.check, msg.hdr.check);
-            unsafe { prop_assert_eq!(decoded.hdr.data.reserved, msg.hdr.data.reserved); }
+            prop_assert_eq!(decoded.hdr.data, msg.hdr.data);
+            prop_assert_eq!(decoded.target_address, msg.target_address);
+            prop_assert_eq!(decoded.destination_address, msg.destination_address);
 
             let decoded_cbor = round_trip_cbor(&msg);
             prop_assert_eq!(decoded_cbor.hdr.type_, msg.hdr.type_);
             prop_assert_eq!(decoded_cbor.hdr.code, msg.hdr.code);
             prop_assert_eq!(decoded_cbor.hdr.check, msg.hdr.check);
-            unsafe { prop_assert_eq!(decoded_cbor.hdr.data.reserved, msg.hdr.data.reserved); }
+            prop_assert_eq!(decoded_cbor.hdr.data, msg.hdr.data);
+            prop_assert_eq!(decoded_cbor.target_address, msg.target_address);
+            prop_assert_eq!(decoded_cbor.destination_address, msg.destination_address);
         }
     }
 }
