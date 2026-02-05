@@ -1,6 +1,30 @@
-use core::mem;
+use core::{error::Error, fmt, mem};
 
 use num_traits::FromPrimitive as _;
+
+/// Represents errors that occur while processing Ethernet headers.
+#[derive(Debug, Eq, PartialEq)]
+pub enum EthernetError {
+    /// Invalid tag of an encapsulated protocol.
+    InvalidEtherType(u16),
+}
+
+impl EthernetError {
+    pub fn msg_and_code(&self) -> (&'static str, u16) {
+        match self {
+            Self::InvalidEtherType(id) => ("invalid ID of an encapsulated protocol", *id),
+        }
+    }
+}
+
+impl fmt::Display for EthernetError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (msg, code) = self.msg_and_code();
+        write!(f, "{msg}: {code}")
+    }
+}
+
+impl Error for EthernetError {}
 
 /// Ethernet header structure that appears at the beginning of every Ethernet frame.
 /// This structure represents the standard IEEE 802.3 Ethernet header format.
@@ -26,8 +50,8 @@ impl EthHdr {
     /// # Returns
     /// - `Ok(EtherType)` if a known protocol type
     /// - `Err(u16)` if an unknown protocol type (returns the raw value)
-    pub fn ether_type(&self) -> Result<EtherType, u16> {
-        EtherType::from_u16(self.ether_type).ok_or(self.ether_type)
+    pub fn ether_type(&self) -> Result<EtherType, EthernetError> {
+        EtherType::from_u16(self.ether_type).ok_or(EthernetError::InvalidEtherType(self.ether_type))
     }
 
     /// Creates a new Ethernet header with the specified addresses and protocol type
@@ -83,6 +107,7 @@ impl From<EtherType> for u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_matches::assert_matches;
     use core::mem;
 
     // Test constants for MAC addresses
@@ -117,13 +142,13 @@ mod tests {
 
     #[test]
     fn test_ethhdr_ether_type_method_unknown() {
-        let unknown_type_val = 0x1234_u16.to_be();
+        let unknown_type_val = 0x1234_u16;
         let eth_hdr = EthHdr {
             dst_addr: TEST_DST_MAC,
             src_addr: TEST_SRC_MAC,
-            ether_type: unknown_type_val,
+            ether_type: unknown_type_val.to_be(),
         };
-        assert_eq!(eth_hdr.ether_type().unwrap_err(), unknown_type_val);
+        assert_matches!(eth_hdr.ether_type(), Err(EthernetError::InvalidEtherType(val)) if val == unknown_type_val.to_be());
     }
 
     #[test]
