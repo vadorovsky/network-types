@@ -1,6 +1,6 @@
 use core::mem;
 
-use crate::bitfield::BitfieldUnit;
+use crate::bitfield::BitfieldU16;
 
 pub const TCP_HDR_LEN: usize = mem::size_of::<TcpHdr>();
 
@@ -14,7 +14,7 @@ pub struct TcpHdr {
     pub seq: [u8; 4],
     pub ack_seq: [u8; 4],
     pub _bitfield_align_1: [u8; 0],
-    pub _bitfield_1: BitfieldUnit<[u8; 2usize]>,
+    pub _bitfield_1: BitfieldU16,
     pub window: [u8; 2],
     pub check: [u8; 2],
     pub urg_ptr: [u8; 2],
@@ -116,8 +116,8 @@ impl TcpHdr {
         urg: u16,
         ece: u16,
         cwr: u16,
-    ) -> BitfieldUnit<[u8; 2usize]> {
-        let mut bitfield_unit: BitfieldUnit<[u8; 2usize]> = Default::default();
+    ) -> BitfieldU16 {
+        let mut bitfield_unit: BitfieldU16 = Default::default();
         bitfield_unit.set(0usize, 4u8, res1.into());
         bitfield_unit.set(4usize, 4u8, doff.into());
         bitfield_unit.set(8usize, 1u8, fin.into());
