@@ -1,5 +1,12 @@
 use core::mem;
 
+/// Represents errors that occur while processing Ethernet headers.
+#[derive(Debug, Eq, PartialEq)]
+pub enum EthError {
+    /// Invalid tag of an encapsulated protocol.
+    InvalidEtherType(u16),
+}
+
 /// Ethernet header structure that appears at the beginning of every Ethernet frame.
 /// This structure represents the standard IEEE 802.3 Ethernet header format.
 #[repr(C, packed)]
@@ -24,7 +31,7 @@ impl EthHdr {
     /// # Returns
     /// - `Ok(EtherType)` if a known protocol type
     /// - `Err(u16)` if an unknown protocol type (returns the raw value)
-    pub fn ether_type(&self) -> Result<EtherType, u16> {
+    pub fn ether_type(&self) -> Result<EtherType, EthError> {
         EtherType::try_from(self.ether_type)
     }
 
@@ -72,7 +79,7 @@ pub enum EtherType {
 // This allows converting a u16 value into an EtherType enum variant.
 // This is useful when parsing headers.
 impl TryFrom<u16> for EtherType {
-    type Error = u16; // Return the unknown value itself as the error
+    type Error = EthError; // Return the unknown value itself as the error
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value.to_be() {
@@ -91,7 +98,7 @@ impl TryFrom<u16> for EtherType {
             0x9100_u16 => Ok(EtherType::Ieee8021QinQ1),
             0x9200_u16 => Ok(EtherType::Ieee8021QinQ2),
             0x9300_u16 => Ok(EtherType::Ieee8021QinQ3),
-            _ => Err(value),
+            other => Err(EthError::InvalidEtherType(other)),
         }
     }
 }
@@ -107,6 +114,7 @@ impl From<EtherType> for u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_matches::assert_matches;
     use core::mem;
 
     // Test constants for MAC addresses
@@ -141,13 +149,13 @@ mod tests {
 
     #[test]
     fn test_ethhdr_ether_type_method_unknown() {
-        let unknown_type_val = 0x1234_u16.to_be();
+        let unknown_type_val = 0x1234_u16;
         let eth_hdr = EthHdr {
             dst_addr: TEST_DST_MAC,
             src_addr: TEST_SRC_MAC,
-            ether_type: unknown_type_val,
+            ether_type: unknown_type_val.to_be(),
         };
-        assert_eq!(eth_hdr.ether_type().unwrap_err(), unknown_type_val);
+        assert_matches!(eth_hdr.ether_type(), Err(EthError::InvalidEtherType(val)) if val == unknown_type_val);
     }
 
     #[test]
@@ -164,8 +172,8 @@ mod tests {
 
     #[test]
     fn test_ethertype_try_from_u16_unknown() {
-        let unknown_val = 0x1234_u16.to_be();
-        assert_eq!(EtherType::try_from(unknown_val), Err(unknown_val));
+        let unknown_val = 0x1234_u16;
+        assert_matches!(EtherType::try_from(unknown_val.to_be()), Err(EthError::InvalidEtherType(val)) if val == unknown_val);
     }
 
     #[test]
