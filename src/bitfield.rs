@@ -6,21 +6,16 @@
 #[repr(C)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct BitfieldUnit<Storage> {
-    storage: Storage,
+pub struct BitfieldU16 {
+    storage: [u8; 2],
 }
 
-impl<Storage> BitfieldUnit<Storage> {
+impl BitfieldU16 {
     #[inline]
-    pub const fn new(storage: Storage) -> Self {
+    pub const fn new(storage: [u8; 2]) -> Self {
         Self { storage }
     }
-}
 
-impl<Storage> BitfieldUnit<Storage>
-where
-    Storage: AsRef<[u8]> + AsMut<[u8]>,
-{
     #[inline]
     pub fn get_bit(&self, index: usize) -> bool {
         debug_assert!(index / 8 < self.storage.as_ref().len());
@@ -110,13 +105,13 @@ mod serde_prop_tests {
     use proptest::test_runner::Config as ProptestConfig;
     use serde_cbor::{from_slice as cbor_from_slice, to_vec as cbor_to_vec};
 
-    fn round_trip_bincode(unit: &BitfieldUnit<[u8; 2]>) -> BitfieldUnit<[u8; 2]> {
+    fn round_trip_bincode(unit: &BitfieldU16) -> BitfieldU16 {
         let cfg = config::standard();
         let bytes = encode_to_vec(unit, cfg).unwrap();
         decode_from_slice(&bytes, cfg).unwrap().0
     }
 
-    fn round_trip_cbor(unit: &BitfieldUnit<[u8; 2]>) -> BitfieldUnit<[u8; 2]> {
+    fn round_trip_cbor(unit: &BitfieldU16) -> BitfieldU16 {
         let bytes = cbor_to_vec(unit).unwrap();
         cbor_from_slice(&bytes).unwrap()
     }
@@ -129,7 +124,7 @@ mod serde_prop_tests {
 
         #[test]
         fn bitfield_unit_round_trip(initial in proptest::array::uniform2(any::<u8>())) {
-            let mut unit = BitfieldUnit::new(initial);
+            let mut unit = BitfieldU16::new(initial);
             let bit = (initial[0] as usize) % (initial.len() * 8);
             unit.set_bit(bit, true);
 
