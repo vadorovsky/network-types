@@ -15,11 +15,11 @@ information about addresses and ports for incoming packets:
 use core::mem;
 
 use aya_ebpf::{bindings::xdp_action, macros::xdp, programs::XdpContext};
-use aya_log_ebpf::info;
+use aya_log_ebpf::{error, info};
 
 use network_types::{
     eth::{EthHdr, EtherType},
-    ip::{Ipv4Hdr, Ipv6Hdr, IpProto},
+    ip::{Ipv4Hdr, Ipv6Hdr, IpError, IpProto},
     tcp::TcpHdr,
     udp::UdpHdr,
 };
@@ -52,7 +52,7 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
             let ipv4hdr: *const Ipv4Hdr = unsafe { ptr_at(&ctx, EthHdr::LEN)? };
             let source_addr = unsafe { (*ipv4hdr).src_addr() };
 
-            let source_port = match unsafe { (*ipv4hdr).proto } {
+            let source_port = match unsafe { (*ipv4hdr).proto().map_err(|_: IpError| ())? } {
                 IpProto::Tcp => {
                     let tcphdr: *const TcpHdr =
                         unsafe { ptr_at(&ctx, EthHdr::LEN + Ipv4Hdr::LEN) }?;
@@ -72,7 +72,7 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
             let ipv6hdr: *const Ipv6Hdr = unsafe { ptr_at(&ctx, EthHdr::LEN)? };
             let source_addr = unsafe { (*ipv6hdr).src_addr() };
 
-            let source_port = match unsafe { (*ipv6hdr).next_hdr } {
+            let source_port = match unsafe { (*ipv6hdr).next_hdr().map_err(|_: IpError| ())? } {
                 IpProto::Tcp => {
                     let tcphdr: *const TcpHdr =
                         unsafe { ptr_at(&ctx, EthHdr::LEN  + Ipv6Hdr::LEN) }?;

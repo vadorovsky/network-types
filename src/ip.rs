@@ -1,6 +1,32 @@
-use core::mem;
+use core::{error::Error, fmt, mem};
+
+use num_traits::FromPrimitive as _;
 
 use crate::{getter_be, setter_be};
+
+/// Represents errors that can occur while processing ICMP headers.
+#[derive(Debug)]
+pub enum IpError {
+    /// Invalid ID of an encapsulated protocol.
+    InvalidProto(u8),
+}
+
+impl IpError {
+    pub fn msg_and_code(&self) -> (&'static str, u8) {
+        match self {
+            Self::InvalidProto(id) => ("invalid ID of an encapsulated protocol", *id),
+        }
+    }
+}
+
+impl fmt::Display for IpError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (msg, code) = self.msg_and_code();
+        write!(f, "{msg}: {code}")
+    }
+}
+
+impl Error for IpError {}
 
 /// IP headers, which are present after the Ethernet header.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -20,7 +46,7 @@ pub struct Ipv4Hdr {
     pub id: [u8; 2],
     pub frags: [u8; 2],
     pub ttl: u8,
-    pub proto: IpProto,
+    pub proto: u8,
     pub check: [u8; 2],
     pub src_addr: [u8; 4],
     pub dst_addr: [u8; 4],
@@ -126,6 +152,18 @@ impl Ipv4Hdr {
         unsafe { setter_be!(self, frags, value) }
     }
 
+    /// Returns the encapsulated protocol.
+    #[inline]
+    pub fn proto(&self) -> Result<IpProto, IpError> {
+        IpProto::from_u8(self.proto).ok_or(IpError::InvalidProto(self.proto))
+    }
+
+    /// Sets the encapsulated protocol.
+    #[inline]
+    pub fn set_proto(&mut self, proto: IpProto) {
+        self.proto = proto.into();
+    }
+
     /// Returns the checksum field.
     #[inline]
     pub fn checksum(&self) -> u16 {
@@ -175,7 +213,7 @@ pub struct Ipv6Hdr {
     /// Payload length (excluding the IPv6 header)
     pub payload_len: [u8; 2],
     /// Next header protocol
-    pub next_hdr: IpProto,
+    pub next_hdr: u8,
     /// Hop limit (similar to TTL in IPv4)
     pub hop_limit: u8,
     /// Source IPv6 address (16 bytes)
@@ -259,6 +297,18 @@ impl Ipv6Hdr {
         unsafe { setter_be!(self, payload_len, len) }
     }
 
+    /// Returns the encapsulated protocol.
+    #[inline]
+    pub fn next_hdr(&self) -> Result<IpProto, IpError> {
+        IpProto::from_u8(self.next_hdr).ok_or(IpError::InvalidProto(self.next_hdr))
+    }
+
+    /// Sets the encapsulated protocol.
+    #[inline]
+    pub fn set_next_hdr(&mut self, proto: IpProto) {
+        self.next_hdr = proto.into();
+    }
+
     /// Returns the source address field.
     #[inline]
     pub fn src_addr(&self) -> core::net::Ipv6Addr {
@@ -287,7 +337,9 @@ impl Ipv6Hdr {
 /// Protocol which is encapsulated in the IPv4 packet.
 /// <https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml>
 #[repr(u8)]
-#[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
+#[derive(
+    PartialEq, Eq, Debug, Copy, Clone, Hash, num_derive::FromPrimitive, num_derive::ToPrimitive,
+)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum IpProto {
     /// IPv6 Hop-by-Hop Option
@@ -588,6 +640,15 @@ pub enum IpProto {
     Reserved = 255,
 }
 
+// `num_traits::ToPrimitive::to_u8` returns an `Option`, but since `IpProto` is
+// `#[repr(u8)]`, it will never return `None`. Provide an infallible
+// alternative for convenience.
+impl From<IpProto> for u8 {
+    fn from(value: IpProto) -> Self {
+        value as u8
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -602,7 +663,7 @@ mod tests {
             id: [0; 2],
             frags: [0; 2],
             ttl: 0,
-            proto: IpProto::Tcp,
+            proto: IpProto::Tcp.into(),
             check: [0; 2],
             src_addr: [0; 4],
             dst_addr: [0; 4],
@@ -614,7 +675,7 @@ mod tests {
         Ipv6Hdr {
             vcf: [0; 4],
             payload_len: [0; 2],
-            next_hdr: IpProto::Tcp,
+            next_hdr: IpProto::Tcp.into(),
             hop_limit: 0,
             src_addr: [0; 16],
             dst_addr: [0; 16],
