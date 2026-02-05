@@ -6,6 +6,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/vadorovsky/network-types/compare/v0.1.0...v0.1.1) - 2026-02-05
+
+### Added
+
+- Add IGMPv1 and IGMPv3 headers
+- add `Ipv4::options_len` ([#75](https://github.com/vadorovsky/network-types/pull/75))
+- Add support IGMPv2
+
+### Fixed
+
+- use the correct size for the unused field in IGMPv3MembershipReportHdr struct ([#81](https://github.com/vadorovsky/network-types/pull/81))
+
+### Other
+
+- Derive Hash trait for IpProto ([#82](https://github.com/vadorovsky/network-types/pull/82))
+- add `feature-powerset`
+- unbreak
+- Extract ICMPv6 redirect payload
+- rename `{Hdr,Data}Un`
+- add nightly CI
+- Remove excessive qualification
+- appease deprecation warnings
+- remove useless transmutes
+- Remove integer-to-pointer cast
+- Remove dependency on memoffset
+- add miri
+- use taiki-e/setup-cross-toolchain-action
+- `fail-fast: false`
+- remove `--verbose`
+- Bump edition to 2024
+- Derive Clone and Copy for Icmp enum ([#72](https://github.com/vadorovsky/network-types/pull/72))
+
 ## [0.0.8](https://github.com/vadorovsky/network-types/compare/v0.0.7...v0.0.8) - 2025-04-07
 
 ### Added
