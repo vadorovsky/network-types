@@ -4,7 +4,8 @@ use crate::{getter_be, setter_be};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct IGMPv1Hdr {
     /// Version/Type
     pub vt: u8,
@@ -60,7 +61,8 @@ impl IGMPv1Hdr {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct IGMPv2Hdr {
     /// Message type
     pub message_type: u8,
@@ -106,7 +108,8 @@ impl IGMPv2Hdr {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct IGMPv3MembershipQueryHdr {
     /// Message type
     pub message_type: u8,
@@ -181,7 +184,8 @@ impl IGMPv3MembershipQueryHdr {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct IGMPv3MembershipReportHdr {
     /// Message type
     pub message_type: u8,
