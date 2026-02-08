@@ -13,6 +13,7 @@ edition = "2024"
 serde = { version = "1", default-features = false, features = ["derive"], optional = true }
 
 [dev-dependencies]
+anyhow = { version = "1.0.101", default-features = false }
 aya-ebpf = { git = "https://github.com/aya-rs/aya", branch = "main" }
 aya-log-ebpf = { git = "https://github.com/aya-rs/aya", branch = "main" }
 bincode = { version = "2.0.1", default-features = false, features = ["serde","alloc"] }

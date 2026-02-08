@@ -33,19 +33,19 @@ pub fn xdp_firewall(ctx: XdpContext) -> u32 {
 }
 
 #[inline(always)]
-unsafe fn ptr_at<T>(ctx: &XdpContext, offset: usize) -> Result<*const T, ()> {
+unsafe fn ptr_at<T>(ctx: &XdpContext, offset: usize) -> anyhow::Result<*const T> {
     let start = ctx.data();
     let end = ctx.data_end();
     let len = mem::size_of::<T>();
 
     if start + offset + len > end {
-        return Err(());
+        anyhow::bail!("access out of bounds");
     }
 
     Ok((start + offset) as *const T)
 }
 
-fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
+fn try_xdp_firewall(ctx: XdpContext) -> anyhow::Result<u32> {
     let ethhdr: *const EthHdr = unsafe { ptr_at(&ctx, 0)? };
     match unsafe { *ethhdr }.ether_type() {
         Ok(EtherType::Ipv4) => {
