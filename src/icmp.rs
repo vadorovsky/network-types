@@ -183,21 +183,19 @@ impl IcmpHdr {
     }
 
     /// Returns the ID Number field from a Traceroute message (Type 30).
-    /// The ID Number is used to match Reply messages (Type 31) to their corresponding Request messages.
-    /// This is only valid for ICMP Type 30 (Traceroute Request) and Type 31 (Traceroute Reply).
+    /// This is only valid for ICMP Type 30 (Traceroute Request).
     #[inline]
     pub fn traceroute_id(&self) -> Result<u16, IcmpError> {
-        if !matches!(self.type_, 30 | 31) {
+        if !matches!(self.type_, 30) {
             return Err(IcmpError::InvalidIcmpType);
         }
         Ok(unsafe { self.traceroute_id_unchecked() })
     }
 
     /// Sets the ID Number field for a Traceroute message (Type 30).
-    /// The ID Number is used to match Reply messages (Type 31) to their corresponding Request messages.
     #[inline]
     pub fn set_traceroute_id(&mut self, id: u16) -> Result<(), IcmpError> {
-        if !matches!(self.type_, 30 | 31) {
+        if !matches!(self.type_, 30) {
             return Err(IcmpError::InvalidIcmpType);
         }
         unsafe {
@@ -366,11 +364,10 @@ impl IcmpHdr {
     }
 
     /// Returns the ID Number field from a Traceroute message (Type 30).
-    /// The ID Number is used to match Reply messages (Type 31) to their corresponding Request messages.
-    /// This is only valid for ICMP Type 30 (Traceroute Request) and Type 31 (Traceroute Reply).
+    /// This is only valid for ICMP Type 30 (Traceroute Request).
     ///
     /// # Safety
-    /// Caller must ensure ICMP type is 30 (Traceroute Request) or 31 (Traceroute Reply) before calling
+    /// Caller must ensure ICMP type is 30 (Traceroute Request) before calling
     /// this function. Accessing the traceroute field with other ICMP types may result in undefined behavior.
     #[inline]
     pub unsafe fn traceroute_id_unchecked(&self) -> u16 {
@@ -378,10 +375,9 @@ impl IcmpHdr {
     }
 
     /// Sets the ID Number field for a Traceroute message (Type 30).
-    /// The ID Number is used to match Reply messages (Type 31) to their corresponding Request messages.
     ///
     /// # Safety
-    /// Caller must ensure ICMP type is 30 (Traceroute Request) or 31 (Traceroute Reply) before calling
+    /// Caller must ensure ICMP type is 30 (Traceroute Request) before calling
     /// this function. Accessing the traceroute field with other ICMP types may result in undefined behavior.
     #[inline]
     pub unsafe fn set_traceroute_id_unchecked(&mut self, id: u16) {
@@ -608,8 +604,7 @@ impl IcmpHdrPhoturis {
 
 /// For ICMP Type 30 "Traceroute" Message (RFC 1393)
 /// Contains a 16-bit ID Number field used by the source to match responses to outgoing requests
-/// followed by 2 unused bytes to make a total of 4 bytes. The ID Number helps match Reply messages
-/// (type 31) to their corresponding Requests.
+/// followed by 2 unused bytes to make a total of 4 bytes.
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -620,11 +615,10 @@ pub struct IcmpTraceroute {
 
 impl IcmpTraceroute {
     /// Returns the ID Number field from a Traceroute message (Type 30).
-    /// The ID Number is used to match Reply messages (Type 31) to their corresponding Request messages.
-    /// This is only valid for ICMP Type 30 (Traceroute Request) and Type 31 (Traceroute Reply).
+    /// This is only valid for ICMP Type 30 (Traceroute Request).
     ///
     /// # Safety
-    /// Caller must ensure ICMP type is 30 (Traceroute Request) or 31 (Traceroute Reply) before calling
+    /// Caller must ensure ICMP type is 30 (Traceroute Request) before calling
     /// this function. Accessing the traceroute field with other ICMP types may result in undefined behavior.
     #[inline]
     unsafe fn id_unchecked(&self) -> u16 {
@@ -632,10 +626,9 @@ impl IcmpTraceroute {
     }
 
     /// Sets the ID Number field for a Traceroute message (Type 30).
-    /// The ID Number is used to match Reply messages (Type 31) to their corresponding Request messages.
     ///
     /// # Safety
-    /// Caller must ensure ICMP type is 30 (Traceroute Request) or 31 (Traceroute Reply) before calling
+    /// Caller must ensure ICMP type is 30 (Traceroute Request) before calling
     /// this function. Accessing the traceroute field with other ICMP types may result in undefined behavior.
     #[inline]
     unsafe fn set_id_unchecked(&mut self, id: u16) {
