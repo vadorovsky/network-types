@@ -1,10 +1,11 @@
-use crate::bitfield::BitfieldUnit;
+use crate::bitfield::BitfieldU16;
 
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct MacHdr {
-    _bitfield_frame_ctl: BitfieldUnit<[u8; 2]>,
+    _bitfield_frame_ctl: BitfieldU16,
     duration_id: [u8; 2],
     address1: [u8; 6],
     address2: [u8; 6],
@@ -122,8 +123,8 @@ impl MacHdr {
         mdata: u16,
         protected_frame: u16,
         order: u16,
-    ) -> BitfieldUnit<[u8; 2usize]> {
-        let mut bitfield_unit: BitfieldUnit<[u8; 2]> = Default::default();
+    ) -> BitfieldU16 {
+        let mut bitfield_unit: BitfieldU16 = Default::default();
         bitfield_unit.set(0, 2, protocol_version.into());
         bitfield_unit.set(2, 2, ty.into());
         bitfield_unit.set(4, 4, sub_ty.into());

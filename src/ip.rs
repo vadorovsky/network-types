@@ -1,9 +1,33 @@
-use core::mem;
+use core::{error::Error, fmt, mem};
 
 use crate::{getter_be, setter_be};
 
+/// Represents errors that can occur while processing ICMP headers.
+#[derive(Debug)]
+pub enum IpError {
+    /// Invalid ID of an encapsulated protocol.
+    InvalidProto(u8),
+}
+
+impl IpError {
+    pub fn msg_and_code(&self) -> (&'static str, u8) {
+        match self {
+            Self::InvalidProto(id) => ("invalid ID of an encapsulated protocol", *id),
+        }
+    }
+}
+
+impl fmt::Display for IpError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (msg, code) = self.msg_and_code();
+        write!(f, "{msg}: {code}")
+    }
+}
+
+impl Error for IpError {}
+
 /// IP headers, which are present after the Ethernet header.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
 pub enum IpHdr {
     V4(Ipv4Hdr),
     V6(Ipv6Hdr),
@@ -12,7 +36,8 @@ pub enum IpHdr {
 /// IPv4 header, which is present after the Ethernet header.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct Ipv4Hdr {
     pub vihl: u8,
     pub tos: u8,
@@ -20,7 +45,7 @@ pub struct Ipv4Hdr {
     pub id: [u8; 2],
     pub frags: [u8; 2],
     pub ttl: u8,
-    pub proto: IpProto,
+    pub proto: u8,
     pub check: [u8; 2],
     pub src_addr: [u8; 4],
     pub dst_addr: [u8; 4],
@@ -126,6 +151,18 @@ impl Ipv4Hdr {
         unsafe { setter_be!(self, frags, value) }
     }
 
+    /// Returns the encapsulated protocol.
+    #[inline]
+    pub fn proto(&self) -> Result<IpProto, IpError> {
+        IpProto::try_from(self.proto)
+    }
+
+    /// Sets the encapsulated protocol.
+    #[inline]
+    pub fn set_proto(&mut self, proto: IpProto) {
+        self.proto = proto.into();
+    }
+
     /// Returns the checksum field.
     #[inline]
     pub fn checksum(&self) -> u16 {
@@ -168,14 +205,15 @@ impl Ipv4Hdr {
 /// IPv6 header, which is present after the Ethernet header.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct Ipv6Hdr {
     /// First 4 bytes containing Version (4 bits), Traffic Class (8 bits), and Flow Label (20 bits)
     pub vcf: [u8; 4],
     /// Payload length (excluding the IPv6 header)
     pub payload_len: [u8; 2],
     /// Next header protocol
-    pub next_hdr: IpProto,
+    pub next_hdr: u8,
     /// Hop limit (similar to TTL in IPv4)
     pub hop_limit: u8,
     /// Source IPv6 address (16 bytes)
@@ -259,6 +297,18 @@ impl Ipv6Hdr {
         unsafe { setter_be!(self, payload_len, len) }
     }
 
+    /// Returns the encapsulated protocol.
+    #[inline]
+    pub fn next_hdr(&self) -> Result<IpProto, IpError> {
+        IpProto::try_from(self.next_hdr)
+    }
+
+    /// Sets the encapsulated protocol.
+    #[inline]
+    pub fn set_next_hdr(&mut self, proto: IpProto) {
+        self.next_hdr = proto.into();
+    }
+
     /// Returns the source address field.
     #[inline]
     pub fn src_addr(&self) -> core::net::Ipv6Addr {
@@ -288,7 +338,7 @@ impl Ipv6Hdr {
 /// <https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml>
 #[repr(u8)]
 #[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
 pub enum IpProto {
     /// IPv6 Hop-by-Hop Option
     HopOpt = 0,
@@ -588,6 +638,32 @@ pub enum IpProto {
     Reserved = 255,
 }
 
+// This allows converting a u8 value into an IpProto enum variant.
+//
+// This is useful when parsing headers.
+impl TryFrom<u8> for IpProto {
+    type Error = IpError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0..=144 | 253..=255 => {
+                // SAFETY: IpProto uses #[repr(u8)] and we only transmute known discriminants.
+                Ok(unsafe { core::mem::transmute::<u8, IpProto>(value) })
+            }
+            other => Err(IpError::InvalidProto(other)),
+        }
+    }
+}
+
+// This allows converting an IpProto enum variant back to its u8 representation.
+//
+// This is useful when constructing headers.
+impl From<IpProto> for u8 {
+    fn from(value: IpProto) -> Self {
+        value as u8
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -602,7 +678,7 @@ mod tests {
             id: [0; 2],
             frags: [0; 2],
             ttl: 0,
-            proto: IpProto::Tcp,
+            proto: IpProto::Tcp.into(),
             check: [0; 2],
             src_addr: [0; 4],
             dst_addr: [0; 4],
@@ -614,7 +690,7 @@ mod tests {
         Ipv6Hdr {
             vcf: [0; 4],
             payload_len: [0; 2],
-            next_hdr: IpProto::Tcp,
+            next_hdr: IpProto::Tcp.into(),
             hop_limit: 0,
             src_addr: [0; 16],
             dst_addr: [0; 16],

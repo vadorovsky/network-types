@@ -1,9 +1,10 @@
 use core::mem;
 
 /// Represents Logical Link Control according to ISO/IEC 8802-2 Definition
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaRead, wincode::SchemaWrite))]
+#[cfg_attr(feature = "wincode", wincode(assert_zero_copy))]
 pub struct LlcHdr {
     /// Destination SAP address
     pub dsap: u8,
