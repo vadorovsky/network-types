@@ -6,14 +6,14 @@ use crate::setter_be;
 
 /// An enum representing either an ICMPv4 or ICMPv6 header.
 ///
-/// - `V4` contains an IPv4 ICMP header as defined in RFC 792 (see `IcmpHdr`)
-/// - `V6` contains an IPv6 ICMP header as defined in RFC 4443 (see `IcmpV6Hdr`)
+/// - `V4` contains an IPv4 ICMP header as defined in RFC 792 (see `Icmpv4Hdr`)
+/// - `V6` contains an IPv6 ICMP header as defined in RFC 4443 (see `Icmpv6Hdr`)
 ///
 /// This enum allows working with both ICMP protocol versions through a unified interface.
 #[derive(Debug, Copy, Clone)]
 pub enum Icmp {
-    V4(IcmpHdr),
-    V6(IcmpV6Hdr),
+    V4(Icmpv4Hdr),
+    V6(Icmpv6Hdr),
 }
 
 /// An enum representing errors that can occur while processing ICMP headers.
@@ -47,15 +47,15 @@ pub enum IcmpError {
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct IcmpHdr {
+pub struct Icmpv4Hdr {
     pub type_: u8,
     pub code: u8,
     pub check: [u8; 2],
     pub data: IcmpDataUn,
 }
 
-impl IcmpHdr {
-    pub const LEN: usize = mem::size_of::<IcmpHdr>();
+impl Icmpv4Hdr {
+    pub const LEN: usize = mem::size_of::<Icmpv4Hdr>();
 
     /// Returns the ICMP header checksum value in host byte order.
     /// This field is used to detect data corruption in the ICMP header and payload.
@@ -251,8 +251,8 @@ impl IcmpHdr {
     }
 }
 
-/// These are the unsafe alternatives to the safe functions on `IcmpHdr` that do prevent undefined behavior.
-impl IcmpHdr {
+/// These are the unsafe alternatives to the safe functions on `Icmpv4Hdr` that do prevent undefined behavior.
+impl Icmpv4Hdr {
     /// Returns the identification field from ICMP Echo/Timestamp/Info/Mask messages.
     /// Only valid for ICMP Types: 0, 8, 13, 14, 15, 16, 17, 18, 37, 38.
     ///
@@ -646,7 +646,7 @@ impl IcmpTraceroute {
 /// use core::mem;
 /// use aya_ebpf::programs::TcContext;
 /// use network_types::eth::EthHdr;
-/// use network_types::icmp::{IcmpHdr, IcmpTimestampMsgPart};
+/// use network_types::icmp::{Icmpv4Hdr, IcmpTimestampMsgPart};
 /// use network_types::ip::Ipv4Hdr;
 /// // Assuming aya_log_ebpf is available for logging, as per project dependencies.
 /// // If not, remove or adapt the log lines.
@@ -662,17 +662,17 @@ impl IcmpTraceroute {
 ///
 ///     // Boundary check: Ensure icmp_start is within packet bounds
 ///     // This check is simplified; a real check would involve ctx.data_end().
-///     if icmp_start + IcmpHdr::LEN > ctx.data_end() {
+///     if icmp_start + Icmpv4Hdr::LEN > ctx.data_end() {
 ///         // warn!(ctx, "ICMP header out of bounds");
 ///         return Err(());
 ///     }
-///     let icmp: *const IcmpHdr = icmp_start as *const IcmpHdr;
+///     let icmp: *const Icmpv4Hdr = icmp_start as *const Icmpv4Hdr;
 ///
 ///     // Check if it's a Timestamp message (type 13 or 14)
 ///     // Reading from a raw pointer is unsafe.
 ///     if unsafe { (*icmp).type_ } == 13 || unsafe { (*icmp).type_ } == 14 {
 ///         // Calculate pointer to the timestamp part
-///         let timestamps_ptr_location = icmp_start + IcmpHdr::LEN;
+///         let timestamps_ptr_location = icmp_start + Icmpv4Hdr::LEN;
 ///
 ///         // Boundary check: Ensure IcmpTimestampMsgPart is within packet bounds
 ///         if timestamps_ptr_location + IcmpTimestampMsgPart::LEN > ctx.data_end() {
@@ -771,22 +771,22 @@ impl IcmpTimestampMsgPart {
 /// use core::mem;
 /// use aya_ebpf::programs::TcContext;
 /// use network_types::eth::EthHdr;
-/// use network_types::icmp::{IcmpHdr, IcmpTracerouteMsgPart};
+/// use network_types::icmp::{Icmpv4Hdr, IcmpTracerouteMsgPart};
 /// use network_types::ip::Ipv4Hdr;
 ///
 /// fn handle_icmp_traceroute(ctx: &TcContext) -> Result<u32, ()> {
 ///     // Parse the ICMP header from start of payload
 ///     let icmp_start = ctx.data() + EthHdr::LEN + Ipv4Hdr::LEN;
-///     let icmp: *const IcmpHdr = icmp_start as *const IcmpHdr;
+///     let icmp: *const Icmpv4Hdr = icmp_start as *const Icmpv4Hdr;
 ///
 ///     // Check if it's a Traceroute message (type 30)
 ///     // Ensure 'icmp' is within bounds before dereferencing.
-///     // if (icmp as *const u8).add(IcmpHdr::LEN) > ctx.data_end() { return Err(()); }
+///     // if (icmp as *const u8).add(Icmpv4Hdr::LEN) > ctx.data_end() { return Err(()); }
 ///     if unsafe { (*icmp).type_ } == 30 {
 ///         // Access the traceroute part that follows the header
 ///         let traceroute_ptr: *const IcmpTracerouteMsgPart = unsafe {
 ///             (icmp_start as *const u8)
-///                 .add(IcmpHdr::LEN) as *const IcmpTracerouteMsgPart
+///                 .add(Icmpv4Hdr::LEN) as *const IcmpTracerouteMsgPart
 ///         };
 ///
 ///         // Before dereferencing traceroute_ptr, ensure it's within packet bounds.
@@ -908,7 +908,7 @@ impl IcmpTracerouteMsgPart {
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct IcmpV6Hdr {
+pub struct Icmpv6Hdr {
     pub type_: u8,
     pub code: u8,
     pub check: [u8; 2],
@@ -971,7 +971,7 @@ impl core::fmt::Debug for IcmpV6DataUn {
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IcmpV6RedirectMsg {
-    pub hdr: IcmpV6Hdr,
+    pub hdr: Icmpv6Hdr,
     target_address: [u8; 16],
     destination_address: [u8; 16],
 }
@@ -1024,8 +1024,8 @@ impl IcmpV6RedirectMsg {
     }
 }
 
-impl IcmpV6Hdr {
-    pub const LEN: usize = mem::size_of::<IcmpV6Hdr>();
+impl Icmpv6Hdr {
+    pub const LEN: usize = mem::size_of::<Icmpv6Hdr>();
 
     /// Returns the ICMPv6 header checksum value in host byte order.
     /// This field is used to detect corruption in the ICMPv6 header and payload.
@@ -1158,7 +1158,7 @@ impl IcmpV6Hdr {
     }
 }
 
-impl IcmpV6Hdr {
+impl Icmpv6Hdr {
     /// Returns the identification field from ICMPv6 Echo Request/Reply messages.
     /// Only valid for ICMPv6 Types: 128 (Echo Request), 129 (Echo Reply).
     ///
@@ -1324,14 +1324,14 @@ mod tests {
 
     #[test]
     fn test_icmp_hdr_size() {
-        // IcmpHdr should be exactly 8 bytes: type(1) + code(1) + check(2) + data(4)
-        assert_eq!(IcmpHdr::LEN, 8);
-        assert_eq!(IcmpHdr::LEN, mem::size_of::<IcmpHdr>());
+        // Icmpv4Hdr should be exactly 8 bytes: type(1) + code(1) + check(2) + data(4)
+        assert_eq!(Icmpv4Hdr::LEN, 8);
+        assert_eq!(Icmpv4Hdr::LEN, mem::size_of::<Icmpv4Hdr>());
     }
 
-    // Helper function to create a default IcmpHdr for testing
-    fn create_test_icmp_hdr() -> IcmpHdr {
-        IcmpHdr {
+    // Helper function to create a default Icmpv4Hdr for testing
+    fn create_test_icmp_hdr() -> Icmpv4Hdr {
+        Icmpv4Hdr {
             type_: 0,
             code: 0,
             check: [0, 0],
@@ -1909,8 +1909,8 @@ mod tests {
     #[test]
     fn test_icmpv6_hdr_size() {
         // IcmpV6Hdr is the base header: type(1) + code(1) + check(2) + data(4)
-        assert_eq!(IcmpV6Hdr::LEN, 8);
-        assert_eq!(IcmpV6Hdr::LEN, mem::size_of::<IcmpV6Hdr>());
+        assert_eq!(Icmpv6Hdr::LEN, 8);
+        assert_eq!(Icmpv6Hdr::LEN, mem::size_of::<Icmpv6Hdr>());
     }
 
     #[test]
@@ -1921,8 +1921,8 @@ mod tests {
     }
 
     // Helper function to create a default IcmpV6Hdr for testing
-    fn create_test_icmpv6_hdr() -> IcmpV6Hdr {
-        IcmpV6Hdr {
+    fn create_test_icmpv6_hdr() -> Icmpv6Hdr {
+        Icmpv6Hdr {
             type_: 0,
             code: 0,
             check: [0, 0],
@@ -2042,7 +2042,7 @@ mod tests {
         use core::net::Ipv6Addr;
 
         let mut msg = IcmpV6RedirectMsg {
-            hdr: IcmpV6Hdr {
+            hdr: Icmpv6Hdr {
                 type_: 137,
                 code: 0,
                 check: [0, 0],
@@ -2193,14 +2193,14 @@ mod serde_prop_tests {
         cbor_from_slice(&bytes).unwrap()
     }
 
-    fn icmp_hdr_strategy() -> impl Strategy<Value = IcmpHdr> {
+    fn icmp_hdr_strategy() -> impl Strategy<Value = Icmpv4Hdr> {
         (
             any::<u8>(),
             any::<u8>(),
             uniform2(any::<u8>()),
             uniform4(any::<u8>()),
         )
-            .prop_map(|(type_, code, check, data)| IcmpHdr {
+            .prop_map(|(type_, code, check, data)| Icmpv4Hdr {
                 type_,
                 code,
                 check,
@@ -2208,7 +2208,7 @@ mod serde_prop_tests {
             })
     }
 
-    fn icmpv6_hdr_strategy() -> impl Strategy<Value = IcmpV6Hdr> {
+    fn icmpv6_hdr_strategy() -> impl Strategy<Value = Icmpv6Hdr> {
         let echo = (
             Just(128u8),
             any::<u8>(),
@@ -2216,7 +2216,7 @@ mod serde_prop_tests {
             uniform2(any::<u8>()),
             uniform2(any::<u8>()),
         )
-            .prop_map(|(type_, code, check, id, seq)| IcmpV6Hdr {
+            .prop_map(|(type_, code, check, id, seq)| Icmpv6Hdr {
                 type_,
                 code,
                 check,
@@ -2232,7 +2232,7 @@ mod serde_prop_tests {
             uniform2(any::<u8>()),
             uniform2(any::<u8>()),
         )
-            .prop_map(|(type_, code, check, id, seq)| IcmpV6Hdr {
+            .prop_map(|(type_, code, check, id, seq)| Icmpv6Hdr {
                 type_,
                 code,
                 check,
@@ -2247,7 +2247,7 @@ mod serde_prop_tests {
             uniform2(any::<u8>()),
             uniform4(any::<u8>()),
         )
-            .prop_map(|(type_, code, check, bytes)| IcmpV6Hdr {
+            .prop_map(|(type_, code, check, bytes)| Icmpv6Hdr {
                 type_,
                 code,
                 check,
@@ -2262,7 +2262,7 @@ mod serde_prop_tests {
             uniform2(any::<u8>()),
             uniform4(any::<u8>()),
         )
-            .prop_map(|(type_, code, check, bytes)| IcmpV6Hdr {
+            .prop_map(|(type_, code, check, bytes)| Icmpv6Hdr {
                 type_,
                 code,
                 check,
@@ -2277,7 +2277,7 @@ mod serde_prop_tests {
             uniform2(any::<u8>()),
             uniform4(any::<u8>()),
         )
-            .prop_map(|(type_, code, check, reserved)| IcmpV6Hdr {
+            .prop_map(|(type_, code, check, reserved)| Icmpv6Hdr {
                 type_,
                 code,
                 check,
@@ -2292,7 +2292,7 @@ mod serde_prop_tests {
             uniform2(any::<u8>()),
             uniform4(any::<u8>()),
         )
-            .prop_map(|(type_, code, check, bytes)| IcmpV6Hdr {
+            .prop_map(|(type_, code, check, bytes)| Icmpv6Hdr {
                 type_,
                 code,
                 check,
@@ -2318,7 +2318,7 @@ mod serde_prop_tests {
             uniform16(any::<u8>()),
         )
             .prop_map(|(code, check, reserved, target, dest)| IcmpV6RedirectMsg {
-                hdr: IcmpV6Hdr {
+                hdr: Icmpv6Hdr {
                     type_: 137,
                     code,
                     check,
