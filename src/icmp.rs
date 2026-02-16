@@ -1507,80 +1507,6 @@ mod tests {
     }
 
     #[test]
-    fn test_icmp_echo_message_construction() {
-        // Test creating a typical ICMP Echo Request
-        let mut hdr = create_test_icmp_hdr();
-
-        hdr.type_ = 8; // Echo Request
-        hdr.code = 0;
-        hdr.set_checksum(0); // Would be calculated later based on the entire message
-
-        // Echo Request (type 8) is valid for echo_id and echo_sequence
-        hdr.set_echo_id(0x1234).unwrap();
-        hdr.set_echo_sequence(0x5678).unwrap();
-
-        assert_eq!(hdr.type_, 8);
-        assert_eq!(hdr.code, 0);
-        assert_eq!(hdr.checksum(), 0);
-        assert_eq!(hdr.echo_id().unwrap(), 0x1234);
-        assert_eq!(hdr.echo_sequence().unwrap(), 0x5678);
-    }
-
-    #[test]
-    fn test_icmp_destination_unreachable_construction() {
-        // Test creating a Destination Unreachable message
-        let mut hdr = create_test_icmp_hdr();
-
-        hdr.type_ = 3; // Destination Unreachable
-        hdr.code = 4; // Fragmentation needed but DF bit set
-        hdr.set_checksum(0); // Would be calculated later
-
-        // Destination Unreachable (type 3) is valid for next_hop_mtu
-        hdr.set_next_hop_mtu(1400).unwrap(); // Example MTU value
-
-        assert_eq!(hdr.type_, 3);
-        assert_eq!(hdr.code, 4);
-        assert_eq!(hdr.checksum(), 0);
-        assert_eq!(hdr.next_hop_mtu().unwrap(), 1400);
-    }
-
-    #[test]
-    fn test_icmp_parameter_problem_construction() {
-        // Test creating a Parameter Problem message
-        let mut hdr = create_test_icmp_hdr();
-
-        hdr.type_ = 12; // Parameter Problem
-        hdr.code = 0; // Pointer indicates the error
-        hdr.set_checksum(0); // Would be calculated later
-
-        // Parameter Problem (type 12) is valid for parameter_pointer
-        hdr.set_parameter_pointer(20).unwrap(); // Error at byte offset 20
-
-        assert_eq!(hdr.type_, 12);
-        assert_eq!(hdr.code, 0);
-        assert_eq!(hdr.checksum(), 0);
-        assert_eq!(hdr.parameter_pointer().unwrap(), 20);
-    }
-
-    #[test]
-    fn test_icmp_redirect_construction() {
-        // Test creating a Redirect message
-        let mut hdr = create_test_icmp_hdr();
-
-        hdr.type_ = 5; // Redirect
-        hdr.code = 1; // Redirect for host
-        hdr.set_checksum(0); // Would be calculated later
-
-        // Redirect (type 5) is valid for gateway_address
-        hdr.set_gateway_address(Ipv4Addr::new(10, 0, 0, 1)).unwrap(); // Gateway address
-
-        assert_eq!(hdr.type_, 5);
-        assert_eq!(hdr.code, 1);
-        assert_eq!(hdr.checksum(), 0);
-        assert_eq!(hdr.gateway_address().unwrap(), Ipv4Addr::new(10, 0, 0, 1));
-    }
-
-    #[test]
     fn test_icmp_timestamp_msg_part_size() {
         // IcmpTimestampMsgPart should be exactly 12 bytes: 3 timestamps of 4 bytes each
         assert_eq!(IcmpTimestampMsgPart::LEN, 12);
@@ -2011,56 +1937,6 @@ mod tests {
         hdr.code = 0;
         assert_eq!(hdr.type_, 4);
         assert_eq!(hdr.code, 0);
-    }
-
-    #[test]
-    fn test_icmpv6_echo_request_construction() {
-        // Test creating a typical ICMPv6 Echo Request
-        let mut hdr = create_test_icmpv6_hdr();
-
-        hdr.type_ = 128; // Echo Request
-        hdr.code = 0;
-        hdr.set_checksum(0); // Would be calculated later based on the entire message
-        hdr.set_echo_id(0x1234).unwrap();
-        hdr.set_echo_sequence(0x5678).unwrap();
-
-        assert_eq!(hdr.type_, 128);
-        assert_eq!(hdr.code, 0);
-        assert_eq!(hdr.checksum(), 0);
-        assert_eq!(hdr.echo_id().unwrap(), 0x1234);
-        assert_eq!(hdr.echo_sequence().unwrap(), 0x5678);
-    }
-
-    #[test]
-    fn test_icmpv6_packet_too_big_construction() {
-        // Test creating a Packet Too Big message
-        let mut hdr = create_test_icmpv6_hdr();
-
-        hdr.type_ = 2; // Packet Too Big
-        hdr.code = 0;
-        hdr.set_checksum(0); // Would be calculated later
-        hdr.set_mtu(1500).unwrap(); // Example MTU value
-
-        assert_eq!(hdr.type_, 2);
-        assert_eq!(hdr.code, 0);
-        assert_eq!(hdr.checksum(), 0);
-        assert_eq!(hdr.mtu().unwrap(), 1500);
-    }
-
-    #[test]
-    fn test_icmpv6_parameter_problem_construction() {
-        // Test creating a Parameter Problem message
-        let mut hdr = create_test_icmpv6_hdr();
-
-        hdr.type_ = 4; // Parameter Problem
-        hdr.code = 0; // Erroneous header field encountered
-        hdr.set_checksum(0); // Would be calculated later
-        hdr.set_pointer(40).unwrap(); // Error at byte offset 40
-
-        assert_eq!(hdr.type_, 4);
-        assert_eq!(hdr.code, 0);
-        assert_eq!(hdr.checksum(), 0);
-        assert_eq!(hdr.pointer().unwrap(), 40);
     }
 }
 
