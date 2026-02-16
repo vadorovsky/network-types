@@ -25,7 +25,7 @@ pub enum Icmp {
 ///   For example, trying to access echo fields on a redirect message.
 #[derive(Debug)]
 pub enum IcmpError {
-    InvalidIcmpType,
+    InvalidIcmpType(u8),
 }
 
 /// Represents an ICMP header as defined in RFC 792.
@@ -121,7 +121,7 @@ impl Icmpv4Hdr {
 
     #[inline]
     pub fn icmp_type(&self) -> Result<Icmpv4Type, IcmpError> {
-        Icmpv4Type::from_u8(self.type_).ok_or(IcmpError::InvalidIcmpType)
+        Icmpv4Type::from_u8(self.type_).ok_or(IcmpError::InvalidIcmpType(self.type_))
     }
 
     /// Returns the ICMP header checksum value in host byte order.
@@ -832,7 +832,7 @@ impl Icmpv6Hdr {
 
     #[inline]
     pub fn icmp_type(&self) -> Result<Icmpv6Type, IcmpError> {
-        Icmpv6Type::from_u8(self.type_).ok_or(IcmpError::InvalidIcmpType)
+        Icmpv6Type::from_u8(self.type_).ok_or(IcmpError::InvalidIcmpType(self.type_))
     }
 
     /// Returns the ICMPv6 header checksum value in host byte order.
