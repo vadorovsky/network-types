@@ -965,65 +965,6 @@ impl core::fmt::Debug for IcmpV6DataUn {
     }
 }
 
-/// Full ICMPv6 Redirect message as defined in RFC 4443 section 4.5.
-/// Combines the base ICMPv6 header with the target and destination addresses.
-#[repr(C, packed)]
-#[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct IcmpV6RedirectMsg {
-    pub hdr: Icmpv6Hdr,
-    target_address: [u8; 16],
-    destination_address: [u8; 16],
-}
-
-impl IcmpV6RedirectMsg {
-    pub const LEN: usize = mem::size_of::<IcmpV6RedirectMsg>();
-
-    /// Returns the 4-byte reserved field from the embedded redirect header.
-    /// This field is currently unused and MUST be initialized to zeros by the sender.
-    #[inline]
-    pub fn reserved(&self) -> [u8; 4] {
-        unsafe { self.hdr.redirect_reserved_unchecked() }
-    }
-
-    /// Sets the 4-byte reserved field in the embedded redirect header.
-    /// This field is currently unused and MUST be set to zeros.
-    #[inline]
-    pub fn set_reserved(&mut self, reserved: [u8; 4]) {
-        unsafe {
-            self.hdr.set_redirect_reserved_unchecked(reserved);
-        }
-    }
-
-    /// Returns the Target Address from an ICMPv6 Redirect message (Type 137).
-    /// This field contains the address that is a better first hop to use for the destination.
-    #[inline]
-    pub fn target_address(&self) -> net::Ipv6Addr {
-        net::Ipv6Addr::from(self.target_address)
-    }
-
-    /// Sets the Target Address for an ICMPv6 Redirect message (Type 137).
-    /// This should be set to the address that is a better first hop to use for the destination.
-    #[inline]
-    pub fn set_target_address(&mut self, addr: net::Ipv6Addr) {
-        self.target_address = addr.octets();
-    }
-
-    /// Returns the Destination Address from an ICMPv6 Redirect message (Type 137).
-    /// This field contains the IP address of the destination that is redirected to the target.
-    #[inline]
-    pub fn destination_address(&self) -> net::Ipv6Addr {
-        net::Ipv6Addr::from(self.destination_address)
-    }
-
-    /// Sets the Destination Address for an ICMPv6 Redirect message (Type 137).
-    /// This should be set to the IP address of the destination that is redirected to the target.
-    #[inline]
-    pub fn set_destination_address(&mut self, addr: net::Ipv6Addr) {
-        self.destination_address = addr.octets();
-    }
-}
-
 impl Icmpv6Hdr {
     pub const LEN: usize = mem::size_of::<Icmpv6Hdr>();
 
@@ -1913,13 +1854,6 @@ mod tests {
         assert_eq!(Icmpv6Hdr::LEN, mem::size_of::<Icmpv6Hdr>());
     }
 
-    #[test]
-    fn test_icmpv6_redirect_msg_size() {
-        assert_eq!(IcmpV6RedirectMsg::LEN, mem::size_of::<IcmpV6RedirectMsg>());
-        // Header (8 bytes) + target address (16) + destination address (16)
-        assert_eq!(IcmpV6RedirectMsg::LEN, 40);
-    }
-
     // Helper function to create a default IcmpV6Hdr for testing
     fn create_test_icmpv6_hdr() -> Icmpv6Hdr {
         Icmpv6Hdr {
@@ -2035,39 +1969,6 @@ mod tests {
         unsafe {
             assert_eq!(hdr.data.param_problem_pointer, [0xFF, 0xFF, 0xFF, 0xFF]);
         }
-    }
-
-    #[test]
-    fn test_icmpv6_redirect_fields() {
-        use core::net::Ipv6Addr;
-
-        let mut msg = IcmpV6RedirectMsg {
-            hdr: Icmpv6Hdr {
-                type_: 137,
-                code: 0,
-                check: [0, 0],
-                data: IcmpV6DataUn {
-                    reserved: [0, 0, 0, 0],
-                },
-            },
-            target_address: [0; 16],
-            destination_address: [0; 16],
-        };
-
-        // Test reserved field
-        let test_reserved: [u8; 4] = [0, 0, 0, 0]; // Should be zeros per RFC
-        msg.set_reserved(test_reserved);
-        assert_eq!(msg.reserved(), test_reserved);
-
-        // Test target address
-        let test_target = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1);
-        msg.set_target_address(test_target);
-        assert_eq!(msg.target_address(), test_target);
-
-        // Test destination address
-        let test_dest = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 2);
-        msg.set_destination_address(test_dest);
-        assert_eq!(msg.destination_address(), test_dest);
     }
 
     #[test]
