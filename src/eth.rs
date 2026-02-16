@@ -1,5 +1,7 @@
 use core::mem;
 
+use num_traits::FromPrimitive as _;
+
 /// Ethernet header structure that appears at the beginning of every Ethernet frame.
 /// This structure represents the standard IEEE 802.3 Ethernet header format.
 #[repr(C, packed)]
@@ -25,7 +27,7 @@ impl EthHdr {
     /// - `Ok(EtherType)` if a known protocol type
     /// - `Err(u16)` if an unknown protocol type (returns the raw value)
     pub fn ether_type(&self) -> Result<EtherType, u16> {
-        EtherType::try_from(self.ether_type)
+        EtherType::from_u16(self.ether_type).ok_or(self.ether_type)
     }
 
     /// Creates a new Ethernet header with the specified addresses and protocol type
@@ -49,7 +51,7 @@ impl EthHdr {
 /// Protocol which is encapsulated in the payload of the Ethernet frame.
 /// These values represent the standard IEEE assigned protocol numbers
 #[repr(u16)]
-#[derive(PartialEq, Eq, Debug, Copy, Clone)]
+#[derive(PartialEq, Eq, Debug, Copy, Clone, num_derive::FromPrimitive, num_derive::ToPrimitive)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum EtherType {
     Loop = 0x0060_u16.to_be(),
@@ -69,35 +71,9 @@ pub enum EtherType {
     Ieee8021QinQ3 = 0x9300_u16.to_be(),
 }
 
-// This allows converting a u16 value into an EtherType enum variant.
-// This is useful when parsing headers.
-impl TryFrom<u16> for EtherType {
-    type Error = u16; // Return the unknown value itself as the error
-
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
-        match value.to_be() {
-            0x0060_u16 => Ok(EtherType::Loop),
-            0x0800_u16 => Ok(EtherType::Ipv4),
-            0x0806_u16 => Ok(EtherType::Arp),
-            0x8100_u16 => Ok(EtherType::Ieee8021q),
-            0x86DD_u16 => Ok(EtherType::Ipv6),
-            0x88A8_u16 => Ok(EtherType::Ieee8021ad),
-            0x88E5_u16 => Ok(EtherType::Ieee8021MacSec),
-            0x88E7_u16 => Ok(EtherType::Ieee8021ah),
-            0x88F5_u16 => Ok(EtherType::Ieee8021mvrp),
-            0x8906_u16 => Ok(EtherType::FibreChannel),
-            0x8915_u16 => Ok(EtherType::Infiniband),
-            0x9000_u16 => Ok(EtherType::LoopbackIeee8023),
-            0x9100_u16 => Ok(EtherType::Ieee8021QinQ1),
-            0x9200_u16 => Ok(EtherType::Ieee8021QinQ2),
-            0x9300_u16 => Ok(EtherType::Ieee8021QinQ3),
-            _ => Err(value),
-        }
-    }
-}
-
-// This allows converting an EtherType enum variant back to its u16 representation.
-// This is useful when constructing headers.
+/// [`num_traits::ToPrimitive::to_u16`] returns an [`Option`], but since
+/// [`IpProto`] is `#[repr(u16)]`, it will never return `None`. Provide an
+/// infallible alternative for convenience.
 impl From<EtherType> for u16 {
     fn from(ether_type: EtherType) -> Self {
         ether_type as u16
@@ -151,21 +127,21 @@ mod tests {
     }
 
     #[test]
-    fn test_ethertype_try_from_u16_known() {
+    fn test_ethertype_from_u16_known() {
         let ipv4_val = 0x0800_u16.to_be();
-        assert_eq!(EtherType::try_from(ipv4_val), Ok(EtherType::Ipv4));
+        assert_eq!(EtherType::from_u16(ipv4_val), Some(EtherType::Ipv4));
 
         let ipv6_val = 0x86DD_u16.to_be();
-        assert_eq!(EtherType::try_from(ipv6_val), Ok(EtherType::Ipv6));
+        assert_eq!(EtherType::from_u16(ipv6_val), Some(EtherType::Ipv6));
 
         let arp_val = 0x0806_u16.to_be();
-        assert_eq!(EtherType::try_from(arp_val), Ok(EtherType::Arp));
+        assert_eq!(EtherType::from_u16(arp_val), Some(EtherType::Arp));
     }
 
     #[test]
     fn test_ethertype_try_from_u16_unknown() {
         let unknown_val = 0x1234_u16.to_be();
-        assert_eq!(EtherType::try_from(unknown_val), Err(unknown_val));
+        assert_eq!(EtherType::from_u16(unknown_val), None);
     }
 
     #[test]
