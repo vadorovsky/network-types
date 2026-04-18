@@ -4,6 +4,7 @@
 
 pub mod arp;
 pub mod bitfield;
+pub mod ecn_codepoint;
 pub mod eth;
 pub mod geneve;
 pub mod icmp;
