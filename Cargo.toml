@@ -1,10 +1,10 @@
 [package]
 name = "network-types"
-version = "0.1.0"
+version = "0.2.0"
 description = "Rust structs representing network-related types in Linux."
 keywords = ["linux", "network", "osi", "packet", "headers"]
 license = "MIT"
-authors = ["Michal Rostecki <vadorovsky@gmail.com>"]
+authors = ["Michal Rostecki <vad.sol@proton.me>"]
 repository = "https://github.com/vadorovsky/network-types"
 readme = "README.md"
 edition = "2024"
